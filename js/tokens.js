@@ -8,11 +8,11 @@ const TOKENS = [
     symbol:   'TKN1',
     name:     'Token 1',
     chain:    'bsc',
-    color:    '#00d4ff',   // card accent color
-    pairAddress: null,     // filled after first price fetch
+    color:    '#00d4ff',
+    pairAddress: null,
   },
   {
-    address:  '0xf15c7f1F00000000b70505e9cC285A8b18D9A21f',
+    address:  '0xf15c7f1F86398520b70505e9cC285A8b18D9A21f',   // corregido
     symbol:   'TKN2',
     name:     'Token 2',
     chain:    'bsc',
@@ -27,6 +27,30 @@ const TOKENS = [
     color:    '#00e676',
     pairAddress: null,
   },
+  {
+    address:  '0xca1df182e5f9d59149057e15a98f95e3de9e0877',
+    symbol:   'TKN4',
+    name:     'Token 4',
+    chain:    'bsc',
+    color:    '#ff9f43',
+    pairAddress: null,
+  },
+  {
+    address:  '0xa80A8cba9b40AC5dA81E84578a75c6ddA94C4444',
+    symbol:   'TKN5',
+    name:     'Token 5',
+    chain:    'bsc',
+    color:    '#ee5a24',
+    pairAddress: null,
+  },
+  {
+    address:  '0x7D19a02e543Ff0E88AB717b886cf8e76a19F76c3',
+    symbol:   'TKN6',
+    name:     'Token 6',
+    chain:    'bsc',
+    color:    '#a29bfe',
+    pairAddress: null,
+  },
 ];
 
 // Live price state per token address
@@ -35,7 +59,7 @@ const priceState = {};
 TOKENS.forEach(t => {
   priceState[t.address] = {
     price:        null,
-    priceChange:  null,   // % 24h
+    priceChange:  null,
     volume24h:    null,
     liquidity:    null,
     marketCap:    null,
@@ -48,7 +72,6 @@ TOKENS.forEach(t => {
   };
 });
 
-// Helpers
 function getToken(address) {
   return TOKENS.find(t => t.address.toLowerCase() === address.toLowerCase());
 }
