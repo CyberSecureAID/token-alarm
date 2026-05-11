@@ -34,7 +34,6 @@ async function fetchAllPrices() {
         _activeSource = 'dexscreener';
         await fetchViaDexscreener();
       } else {
-        // Also enrich with DexScreener buy/sell data in background
         enrichWithDexscreener().catch(() => {});
       }
     } else {
@@ -92,7 +91,6 @@ async function fetchViaGecko() {
 
       const attrs = tData.attributes || {};
 
-      // Find best pool (highest 24h volume)
       const rels = tData.relationships?.top_pools?.data || [];
       let bestPool = null, bestVol = -1;
       rels.forEach(ref => {
@@ -130,11 +128,9 @@ async function fetchViaGecko() {
       state.error          = false;
       state.loading        = false;
       state.source         = 'gecko';
-      state.symbol         = attrs.symbol || token.symbol;
-      state.name           = attrs.name   || token.name;
-
-      token.symbol = state.symbol;
-      token.name   = state.name;
+      // Preservar símbolo y nombre definidos en tokens.js (USDT.z)
+      state.symbol         = token.symbol;
+      state.name           = token.name;
 
       if (rawPrice > 0) anyOk = true;
     });
@@ -217,11 +213,9 @@ async function fetchViaDexscreener() {
       state.error          = false;
       state.loading        = false;
       state.source         = 'dexscreener';
-      state.symbol         = (isBase ? best.baseToken?.symbol : best.quoteToken?.symbol) || t.symbol;
-      state.name           = (isBase ? best.baseToken?.name   : best.quoteToken?.name)   || t.name;
-
-      t.symbol = state.symbol;
-      t.name   = state.name;
+      // Preservar símbolo y nombre definidos en tokens.js (USDT.z)
+      state.symbol         = t.symbol;
+      state.name           = t.name;
     });
 
     return true;
@@ -321,7 +315,6 @@ function getActiveSource() {
   return _activeSource;
 }
 
-// ---- Polling ----
 function startPolling(intervalMs) {
   stopPolling();
   fetchAllPrices();
