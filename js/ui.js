@@ -1,12 +1,11 @@
 // ============================================================
-//  ui.js — DOM rendering & UI updates v4.0
+//  ui.js — DOM rendering & UI updates v4.1
 //
-//  CAMBIOS:
-//    - Precio BNB como referencia principal en cada tarjeta
-//    - Precio USD como valor secundario
-//    - Panel desplegable con gráfica de DexScreener por tarjeta
-//    - "SIN DATOS" muestra mensaje descriptivo + retry
-//    - Ticker muestra precio BNB
+//  CAMBIOS v4.1:
+//    - Precio USD como referencia PRINCIPAL (grande)
+//    - Precio BNB como secundario (pequeño)
+//    - Gráficas precargadas ocultas en segundo plano
+//    - Branding Token Alarm sobre iframe DexScreener
 // ============================================================
 
 // ============================================================
@@ -27,15 +26,15 @@ function buildTickerHTML() {
     const tag  = contractTag(t.address);
     const sym  = (s && s.symbol) ? s.symbol : t.symbol;
 
-    // Mostrar precio BNB (primario) en el ticker
-    const priceBNB = (s && s.priceNative !== null) ? formatPriceBNB(s.priceNative) : '—';
-    const priceUSD = (s && s.price !== null)       ? formatPrice(s.price)           : '';
+    // Mostrar precio USD (primario) en el ticker
+    const priceUSD = (s && s.price !== null)       ? formatPrice(s.price)           : '—';
+    const priceBNB = (s && s.priceNative !== null) ? formatPriceBNB(s.priceNative) : '';
 
     items += `<span class="ticker-item">` +
       `<span class="name">${sym}</span>` +
       `<span class="ticker-tag">(${tag})</span>` +
-      `&nbsp;<span class="ticker-bnb">${priceBNB}</span>&nbsp;` +
-      (priceUSD ? `<span class="ticker-usd">${priceUSD}</span>&nbsp;` : '') +
+      `&nbsp;<span class="ticker-usd-main">${priceUSD}</span>&nbsp;` +
+      (priceBNB ? `<span class="ticker-bnb-sec">${priceBNB}</span>&nbsp;` : '') +
       `<span class="${cls}">${sgn}${ch.toFixed(2)}%</span>` +
       `</span>`;
   });
@@ -88,8 +87,72 @@ function renderTokenCards() {
     grid.appendChild(card);
   });
 
+  // Precargar todas las gráficas en segundo plano
+  setTimeout(preloadAllCharts, 1500);
+
   const countEl = document.getElementById('tokens-count');
   if (countEl) countEl.textContent = `${TOKENS.length} tokens`;
+}
+
+// ============================================================
+//  PRECARGA DE GRÁFICAS EN SEGUNDO PLANO
+// ============================================================
+const _chartLoaded = new Set();
+
+function preloadAllCharts() {
+  TOKENS.forEach((token, idx) => {
+    // Escalonar la carga para no saturar el navegador
+    setTimeout(() => preloadChart(token.address), idx * 800);
+  });
+}
+
+function preloadChart(address) {
+  if (_chartLoaded.has(address)) return;
+  _chartLoaded.add(address);
+
+  const wrap  = document.getElementById('chart-iframe-wrap-' + address);
+  const token = getToken(address);
+  const state = priceState[address];
+  if (!wrap) return;
+
+  const pairAddr = state?.pairAddress || token?.pairAddress;
+  const chartUrl = pairAddr
+    ? `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`
+    : `https://dexscreener.com/bsc/${address}?embed=1&theme=dark&info=0&trades=0`;
+
+  wrap.innerHTML = `<iframe
+    src="${chartUrl}"
+    class="chart-iframe"
+    frameborder="0"
+    allowfullscreen
+    loading="lazy"
+    title="Chart ${contractTag(address)}"
+  ></iframe>`;
+}
+
+// Recargar gráfica si el pairAddress se resolvió después de la precarga
+function recheckChartUrl(address) {
+  const wrap  = document.getElementById('chart-iframe-wrap-' + address);
+  const token = getToken(address);
+  const state = priceState[address];
+  if (!wrap || !_chartLoaded.has(address)) return;
+
+  const pairAddr = state?.pairAddress || token?.pairAddress;
+  if (!pairAddr) return;
+
+  const currentSrc = wrap.querySelector('iframe')?.src || '';
+  const newUrl = `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`;
+  // Solo recargar si la URL cambió (pairAddress recién descubierto)
+  if (!currentSrc.includes(pairAddr)) {
+    wrap.innerHTML = `<iframe
+      src="${newUrl}"
+      class="chart-iframe"
+      frameborder="0"
+      allowfullscreen
+      loading="lazy"
+      title="Chart ${contractTag(address)}"
+    ></iframe>`;
+  }
 }
 
 function buildTokenCard(token, state) {
@@ -117,32 +180,35 @@ function buildTokenCard(token, state) {
     ? (state.price > state.prevPrice ? 'up' : state.price < state.prevPrice ? 'down' : '')
     : '';
 
-  // Bloque de precio
+  // ── BLOQUE DE PRECIO: USD principal (grande), BNB secundario (pequeño) ──
   let priceBlock = '';
   if (state.loading) {
-    priceBlock = `<div class="price-bnb" id="price-bnb-${token.address}">···</div>
-                  <div class="price-usd" id="price-usd-${token.address}">···</div>`;
-  } else if (state.error || (state.price === null && state.priceNative === null)) {
-    priceBlock = `<div class="price-error" id="price-bnb-${token.address}">
-                    SIN DATOS
-                    <span class="error-hint">${state.errorMsg || 'Par no encontrado'}</span>
-                  </div>`;
-  } else {
     priceBlock = `
-      <div class="price-bnb ${priceDir}" id="price-bnb-${token.address}">
-        ${formatPriceBNB(state.priceNative)}
-        ${isSimulated ? '<span class="sim-badge">[SIM]</span>' : ''}
+      <div class="price-main" id="price-usd-${token.address}">···</div>
+      <div class="price-secondary" id="price-bnb-${token.address}">···</div>`;
+  } else if (state.error || (state.price === null && state.priceNative === null)) {
+    priceBlock = `
+      <div class="price-error" id="price-usd-${token.address}">
+        SIN DATOS
+        <span class="error-hint">${state.errorMsg || 'Par no encontrado'}</span>
+      </div>`;
+  } else {
+    const simBadge = isSimulated ? '<span class="sim-badge">[SIM]</span>' : '';
+    priceBlock = `
+      <div class="price-main ${priceDir}" id="price-usd-${token.address}">
+        ${state.price !== null ? formatPrice(state.price) : '—'}
+        ${simBadge}
       </div>
-      <div class="price-usd" id="price-usd-${token.address}">
-        ${state.price !== null ? formatPrice(state.price) : ''}
+      <div class="price-secondary" id="price-bnb-${token.address}">
+        ${state.priceNative !== null ? formatPriceBNB(state.priceNative) : ''}
       </div>`;
   }
 
-  // Gráfica URL de DexScreener (embed iframe)
+  // URL de la gráfica
   const pairAddr = state.pairAddress || token.pairAddress;
-  const chartUrl = pairAddr
-    ? `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`
-    : `https://dexscreener.com/bsc/${token.address}?embed=1&theme=dark&info=0&trades=0`;
+  const dexscreenerLink = pairAddr
+    ? `https://dexscreener.com/bsc/${pairAddr}`
+    : `https://dexscreener.com/bsc/${token.address}`;
 
   card.innerHTML = `
     <!-- TOP -->
@@ -153,7 +219,7 @@ function buildTokenCard(token, state) {
              alt="${state.symbol}"
              onerror="this.src='${USDT_LOGO_URL}'"
         />
-        <span class="verified-badge" title="Token verificado">✓</span>
+        <span class="verified-badge${state.verified ? '' : ' hidden'}" title="Token verificado">✓</span>
       </div>
 
       <div class="token-identity">
@@ -169,7 +235,6 @@ function buildTokenCard(token, state) {
           <span class="contract-tag">${tag}</span>
           <span style="opacity:0.4">⎘</span>
         </div>
-        <!-- Botón para abrir gráfica -->
         <button class="chart-toggle-btn" onclick="toggleChart('${token.address}')"
                 id="chart-btn-${token.address}" title="Ver gráfica en vivo">
           <span class="chart-btn-icon">▾</span> CHART
@@ -177,7 +242,7 @@ function buildTokenCard(token, state) {
       </div>
     </div>
 
-    <!-- PRECIO — BNB primario, USD secundario -->
+    <!-- PRECIO — USD principal (grande), BNB secundario (pequeño) -->
     <div class="card-price">
       ${priceBlock}
       <div class="price-timeframes">
@@ -235,18 +300,23 @@ function buildTokenCard(token, state) {
       </div>
     </div>
 
-    <!-- GRÁFICA DESPLEGABLE -->
+    <!-- GRÁFICA DESPLEGABLE — iframe precargado, oculto hasta que se abra -->
     <div class="chart-panel" id="chart-${token.address}" style="display:none">
       <div class="chart-panel-header">
         <span class="chart-panel-title">GRÁFICA EN VIVO — ${state.symbol} (${tag})</span>
         <a class="chart-ext-link"
-           href="https://dexscreener.com/bsc/${pairAddr || token.address}"
+           href="${dexscreenerLink}"
            target="_blank" rel="noopener" title="Abrir en DexScreener">
-          ↗ ABRIR EN DEXSCREENER
+          ↗ VER MÁS
         </a>
       </div>
       <div class="chart-iframe-wrap" id="chart-iframe-wrap-${token.address}">
-        <!-- El iframe se inyecta cuando se abre para no cargar hasta que se necesite -->
+        <!-- iframe precargado en segundo plano por preloadChart() -->
+        <!-- Overlay de branding Token Alarm (cubre el footer de DexScreener) -->
+        <div class="chart-brand-overlay">
+          <span class="chart-brand-icon">◈</span>
+          <span class="chart-brand-text">TOKEN<span class="chart-brand-accent">ALARM</span></span>
+        </div>
       </div>
     </div>
   `;
@@ -256,9 +326,8 @@ function buildTokenCard(token, state) {
 
 // ============================================================
 //  TOGGLE GRÁFICA DESPLEGABLE
+//  El iframe ya está precargado → apertura instantánea
 // ============================================================
-const _chartLoaded = new Set();
-
 function toggleChart(address) {
   const panel = document.getElementById('chart-' + address);
   const btn   = document.getElementById('chart-btn-' + address);
@@ -268,36 +337,12 @@ function toggleChart(address) {
 
   if (isOpen) {
     panel.style.display = 'none';
-    if (btn) btn.classList.remove('active');
-    if (btn) btn.querySelector('.chart-btn-icon').textContent = '▾';
+    if (btn) { btn.classList.remove('active'); btn.querySelector('.chart-btn-icon').textContent = '▾'; }
   } else {
     panel.style.display = 'block';
-    if (btn) btn.classList.add('active');
-    if (btn) btn.querySelector('.chart-btn-icon').textContent = '▴';
-
-    // Cargar iframe solo la primera vez (lazy load)
-    if (!_chartLoaded.has(address)) {
-      _chartLoaded.add(address);
-      const wrap   = document.getElementById('chart-iframe-wrap-' + address);
-      const token  = getToken(address);
-      const state  = priceState[address];
-      const pairAddr = state?.pairAddress || token?.pairAddress;
-
-      const chartUrl = pairAddr
-        ? `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`
-        : `https://dexscreener.com/bsc/${address}?embed=1&theme=dark&info=0&trades=0`;
-
-      if (wrap) {
-        wrap.innerHTML = `<iframe
-          src="${chartUrl}"
-          class="chart-iframe"
-          frameborder="0"
-          allowfullscreen
-          loading="lazy"
-          title="Chart ${contractTag(address)}"
-        ></iframe>`;
-      }
-    }
+    if (btn) { btn.classList.add('active'); btn.querySelector('.chart-btn-icon').textContent = '▴'; }
+    // Si el pairAddress se resolvió tras la precarga inicial, actualizar URL
+    recheckChartUrl(address);
   }
 }
 
@@ -309,27 +354,28 @@ function updateCardPrice(tokenAddress) {
   const state = priceState[tokenAddress];
   if (!card || !state) return;
 
-  // Precio BNB (primario)
-  const priceBnbEl = document.getElementById('price-bnb-' + tokenAddress);
-  if (priceBnbEl) {
+  // ── PRECIO USD (principal, grande) ──
+  const priceUsdEl = document.getElementById('price-usd-' + tokenAddress);
+  if (priceUsdEl) {
     const priceDir = (state.prevPrice !== null && state.price !== null)
       ? (state.price > state.prevPrice ? 'up' : state.price < state.prevPrice ? 'down' : '')
       : '';
 
     if (state.error || (state.price === null && state.priceNative === null)) {
-      priceBnbEl.className = 'price-error';
-      priceBnbEl.innerHTML = `SIN DATOS <span class="error-hint">${state.errorMsg || ''}</span>`;
+      priceUsdEl.className = 'price-error';
+      priceUsdEl.innerHTML = `SIN DATOS <span class="error-hint">${state.errorMsg || ''}</span>`;
     } else {
       const sim = isSimulating(tokenAddress) ? '<span class="sim-badge">[SIM]</span>' : '';
-      priceBnbEl.className = `price-bnb${priceDir ? ' ' + priceDir : ''}`;
-      priceBnbEl.innerHTML = formatPriceBNB(state.priceNative) + sim;
+      priceUsdEl.className = `price-main${priceDir ? ' ' + priceDir : ''}`;
+      priceUsdEl.innerHTML = (state.price !== null ? formatPrice(state.price) : '—') + sim;
     }
   }
 
-  // Precio USD (secundario)
-  const priceUsdEl = document.getElementById('price-usd-' + tokenAddress);
-  if (priceUsdEl && !state.error) {
-    priceUsdEl.textContent = state.price !== null ? formatPrice(state.price) : '';
+  // ── PRECIO BNB (secundario, pequeño) ──
+  const priceBnbEl = document.getElementById('price-bnb-' + tokenAddress);
+  if (priceBnbEl && !state.error) {
+    priceBnbEl.className = 'price-secondary';
+    priceBnbEl.textContent = state.priceNative !== null ? formatPriceBNB(state.priceNative) : '';
   }
 
   // Variaciones
@@ -390,6 +436,9 @@ function updateCardPrice(tokenAddress) {
     );
     chipsEl.innerHTML = renderOrderChips(tokenAddress, orders);
   }
+
+  // Recargar iframe si el pairAddress se resolvió ahora
+  recheckChartUrl(tokenAddress);
 }
 
 // ============================================================
