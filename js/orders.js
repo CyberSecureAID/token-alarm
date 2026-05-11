@@ -22,17 +22,17 @@ function addOrder({ tokenAddress, type, price, note, repeat, browserNotify }) {
   const orders = loadOrders();
   const token  = getToken(tokenAddress);
   const order  = {
-    id:              Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    id:            Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     tokenAddress,
-    tokenSymbol:     token?.symbol || shortAddress(tokenAddress),
+    tokenSymbol:   token?.symbol || shortAddress(tokenAddress),
     type,            // 'below' | 'above'
-    price:           parseFloat(price),
-    note:            note || '',
-    repeat:          !!repeat,
-    browserNotify:   !!browserNotify,
-    triggered:       false,
-    createdAt:       new Date().toISOString(),
-    triggeredAt:     null,
+    price:         parseFloat(price),
+    note:          note || '',
+    repeat:        !!repeat,
+    browserNotify: !!browserNotify,
+    triggered:     false,
+    createdAt:     new Date().toISOString(),
+    triggeredAt:   null,
   };
   orders.push(order);
   saveOrders(orders);
@@ -51,7 +51,7 @@ function markOrderTriggered(id) {
 
   if (order.repeat) {
     order.triggeredAt = new Date().toISOString();
-    // Keep active but record last trigger — can trigger again next cycle
+    // Keep active — can fire again next cycle after cooldown
   } else {
     order.triggered   = true;
     order.triggeredAt = new Date().toISOString();
@@ -60,8 +60,7 @@ function markOrderTriggered(id) {
 }
 
 // ---- Evaluate all active orders against current prices ----
-// Returns array of triggered orders (each fire once per call unless repeat=true)
-let _lastTriggered = {};   // id → timestamp to avoid spam on repeat orders
+let _lastTriggered = {};   // id → timestamp (cooldown for repeat orders)
 
 function evaluateOrders() {
   const orders   = loadOrders();
@@ -75,15 +74,15 @@ function evaluateOrders() {
     const state = priceState[order.tokenAddress];
     if (!state || state.price === null || state.error) return;
 
-    const price   = state.price;
-    let shouldFire = false;
+    const price     = state.price;
+    let shouldFire  = false;
 
     if (order.type === 'below' && price <= order.price) shouldFire = true;
     if (order.type === 'above' && price >= order.price) shouldFire = true;
 
     if (!shouldFire) return;
 
-    // Cooldown check for repeat orders
+    // Cooldown for repeat orders
     if (order.repeat) {
       const lastFire = _lastTriggered[order.id] || 0;
       if (now - lastFire < COOLDOWN) return;
@@ -98,7 +97,6 @@ function evaluateOrders() {
 }
 
 function updateOrderSymbols() {
-  // Called after price fetch to keep symbols fresh
   const orders = loadOrders();
   let changed = false;
   orders.forEach(o => {
