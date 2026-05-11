@@ -149,34 +149,29 @@ async function resolveTokenLogo(token) {
   const state = priceState[token.address];
   if (state.logoResolved) return;
 
-  // Trust Wallet requires EIP-55 checksum. We try both casings.
   const candidates = [
-    twLogo(token.address),                        // as-is
-    twLogo(token.address.toLowerCase()),          // lower
-    // upper first char of each byte (simple heuristic if ethers not loaded)
+    twLogo(token.address),
+    twLogo(token.address.toLowerCase()),
   ];
 
   for (const url of candidates) {
     const ok = await testImage(url);
     if (ok) {
-      state.logoUrl     = url;
-      state.verified    = true;
-      token.verified    = true;
+      state.logoUrl      = url;
+      state.verified     = true;
+      token.verified     = true;
       state.logoResolved = true;
-      // Patch card logo live
       _patchCardLogo(token.address, url, true);
       return;
     }
   }
 
-  // Keep avatar, no verified badge
   state.logoResolved = true;
 }
 
 async function resolveAllLogos() {
-  // Stagger requests to avoid rate-limiting
   for (const token of TOKENS) {
-    resolveTokenLogo(token); // fire-and-forget, patches DOM directly
+    resolveTokenLogo(token);
     await new Promise(r => setTimeout(r, 200));
   }
 }
@@ -213,9 +208,9 @@ function formatPrice(price) {
 function formatNumber(n) {
   if (n === null || n === undefined || isNaN(n)) return '—';
   if (n >= 1e12) return '$' + (n / 1e12).toFixed(2) + 'T';
-  if (n >= 1e9)  return '$' + (n / 1e9).toFixed(2) + 'B';
-  if (n >= 1e6)  return '$' + (n / 1e6).toFixed(2) + 'M';
-  if (n >= 1e3)  return '$' + (n / 1e3).toFixed(2) + 'K';
+  if (n >= 1e9)  return '$' + (n / 1e9).toFixed(2)  + 'B';
+  if (n >= 1e6)  return '$' + (n / 1e6).toFixed(2)  + 'M';
+  if (n >= 1e3)  return '$' + (n / 1e3).toFixed(2)  + 'K';
   return '$' + n.toFixed(2);
 }
 
@@ -234,14 +229,14 @@ function formatPercent(n, withSign = true) {
 
 function formatAge(isoDateOrMs) {
   if (!isoDateOrMs) return '—';
-  const ms = typeof isoDateOrMs === 'number' ? isoDateOrMs : new Date(isoDateOrMs).getTime();
+  const ms   = typeof isoDateOrMs === 'number' ? isoDateOrMs : new Date(isoDateOrMs).getTime();
   const diff = Date.now() - ms;
   const days  = Math.floor(diff / 86400000);
   const hours = Math.floor(diff / 3600000);
   const mins  = Math.floor(diff / 60000);
-  if (mins  < 60)  return mins + 'm';
+  if (mins  < 60)  return mins  + 'm';
   if (hours < 24)  return hours + 'h';
-  if (days  < 30)  return days + 'd';
-  if (days  < 365) return Math.floor(days / 30) + 'mo';
+  if (days  < 30)  return days  + 'd';
+  if (days  < 365) return Math.floor(days / 30)  + 'mo';
   return Math.floor(days / 365) + 'y ' + (Math.floor(days % 365 / 30)) + 'mo';
 }
