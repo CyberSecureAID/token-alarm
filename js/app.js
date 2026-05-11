@@ -1,12 +1,15 @@
 // ============================================================
-//  app.js — Main controller
-//  Handles: audio unlock, polling, order evaluation,
-//           settings panel, test mode, all event listeners
+//  app.js — Main controller v4.0
+//  Changes:
+//    - Watcher continuo con detección de precios estancados
+//    - Alerta evaluada vs precio BNB (priceNative) cuando aplica
+//    - Boot más robusto
 // ============================================================
 
-let _pollInterval  = 30000;
-let _soundMuted    = false;
-let _settingsOpen  = false;
+let _pollInterval    = 30000;
+let _soundMuted      = false;
+let _settingsOpen    = false;
+let _stalePriceTimer = null;   // detectar precios sin actualizar
 
 // ============================================================
 //  BOOT
@@ -47,17 +50,48 @@ function bootApp() {
   setStatus('loading', 'CARGANDO PRECIOS');
   setPriceUpdateCallback(onPriceUpdate);
   startPolling(_pollInterval);
-  setTimeout(resolveAllLogos, 1500);
+  setTimeout(resolveAllLogos, 2000);
+  startStaleWatcher();
+}
+
+// ============================================================
+//  STALE WATCHER — detecta si los precios llevan demasiado
+//  tiempo sin actualizarse y fuerza un re-fetch
+// ============================================================
+function startStaleWatcher() {
+  const STALE_THRESHOLD = 90000; // 90 segundos sin actualización = problema
+
+  if (_stalePriceTimer) clearInterval(_stalePriceTimer);
+  _stalePriceTimer = setInterval(() => {
+    const now = Date.now();
+    let allStale = true;
+
+    TOKENS.forEach(t => {
+      const s = priceState[t.address];
+      if (s.lastUpdated && (now - new Date(s.lastUpdated).getTime()) < STALE_THRESHOLD) {
+        allStale = false;
+      }
+    });
+
+    if (allStale && TOKENS.some(t => !priceState[t.address].loading)) {
+      console.warn('[watcher] Precios estancados → forzando actualización');
+      setStatus('loading', 'RECONECTANDO');
+      fetchAllPrices();
+    }
+  }, 45000);
 }
 
 // ============================================================
 //  PRICE UPDATE CALLBACK
 // ============================================================
 function onPriceUpdate() {
-  const anyError = TOKENS.every(t => priceState[t.address].error);
-  const anyOk    = TOKENS.some(t => priceState[t.address].price !== null && !priceState[t.address].error);
+  const allError = TOKENS.every(t => priceState[t.address].error);
+  const anyOk    = TOKENS.some(t =>
+    !priceState[t.address].error &&
+    (priceState[t.address].price !== null || priceState[t.address].priceNative !== null)
+  );
 
-  if (anyError) {
+  if (allError) {
     setStatus('error', 'SIN DATOS');
     setSourceBadge('error');
   } else if (anyOk) {
@@ -68,10 +102,7 @@ function onPriceUpdate() {
   }
 
   TOKENS.forEach(t => updateCardPrice(t.address));
-
-  // Ticker JS-driven: actualizar contenido sin reiniciar la animación
   updateTicker();
-
   updateOrderSymbols();
 
   const fired = evaluateOrders();
@@ -89,7 +120,7 @@ function onPriceUpdate() {
 }
 
 // ============================================================
-//  EVENT BINDINGS
+//  EVENTS
 // ============================================================
 function bindEvents() {
   const unlockBtn = document.getElementById('unlock-btn');
@@ -121,13 +152,11 @@ function bindEvents() {
     if (_settingsOpen) closeSettings(); else openSettings();
     _settingsOpen = !_settingsOpen;
   });
-
   document.getElementById('close-settings-btn')?.addEventListener('click', () => {
-    closeSettings();
-    _settingsOpen = false;
+    closeSettings(); _settingsOpen = false;
   });
 
-  // ---- Alert form ----
+  // Alerta form
   document.getElementById('add-order-btn')?.addEventListener('click', openOrderForm);
   document.getElementById('cancel-order-btn')?.addEventListener('click', closeOrderForm);
 
@@ -153,8 +182,7 @@ function bindEvents() {
   });
 
   document.getElementById('clear-history-btn')?.addEventListener('click', () => {
-    clearHistory();
-    renderHistory();
+    clearHistory(); renderHistory();
   });
 
   document.getElementById('refresh-interval')?.addEventListener('change', e => {
@@ -199,10 +227,7 @@ function bindEvents() {
   });
 
   document.getElementById('run-test-btn')?.addEventListener('click', runTestMode);
-
-  document.getElementById('price-source')?.addEventListener('change', () => {
-    saveSettings();
-  });
+  document.getElementById('price-source')?.addEventListener('change', () => saveSettings());
 }
 
 // ============================================================
@@ -212,7 +237,6 @@ function runTestMode() {
   const tokenAddr = document.getElementById('test-token')?.value;
   const direction = document.getElementById('test-direction')?.value;
   const resultEl  = document.getElementById('test-result');
-
   if (!tokenAddr) return;
 
   const state = priceState[tokenAddr];
@@ -247,28 +271,14 @@ function runTestMode() {
   });
   renderHistory();
 
-  const sym = state?.symbol || 'USDT.z';
-  const tag = contractTag(tokenAddr);
-  const dirLabel = {
-    crash: 'CRASH −30%', pump: 'PUMP +40%',
-    slight_down: 'Baja leve −5%', slight_up: 'Suba leve +5%',
-    custom: 'Precio manual',
-  }[direction] || direction;
+  const sym      = state?.symbol || 'USDT.z';
+  const tag      = contractTag(tokenAddr);
+  const dirLabel = { crash: 'CRASH −30%', pump: 'PUMP +40%', slight_down: 'Baja leve −5%', slight_up: 'Suba leve +5%', custom: 'Precio manual' }[direction] || direction;
 
   playSound(document.getElementById('alert-sound')?.value || 'executive', 1);
   showToast(`🧪 ${sym} (${tag}) · ${dirLabel}`, `Precio simulado: ${formatPrice(simPrice)}`, 'info');
-
-  addHistoryEntry({
-    type:         'test',
-    tokenAddress: tokenAddr,
-    tokenSymbol:  sym,
-    targetPrice:  simPrice,
-    currentPrice: simPrice,
-    note:         `Simulación: ${dirLabel}`,
-    isTest:       true,
-  });
+  addHistoryEntry({ type: 'test', tokenAddress: tokenAddr, tokenSymbol: sym, targetPrice: simPrice, currentPrice: simPrice, note: `Simulación: ${dirLabel}`, isTest: true });
   renderHistory();
-
   showTestResult(`✓ Simulación activa: ${sym} (${tag}) → ${formatPrice(simPrice)}`, 'success');
 
   setTimeout(() => {
@@ -276,9 +286,7 @@ function runTestMode() {
     TOKENS.forEach(t => updateCardPrice(t.address));
     updateTicker();
     showTestResult('↺ Precios reales restaurados.', 'warning');
-    setTimeout(() => {
-      if (resultEl) resultEl.classList.add('hidden');
-    }, 4000);
+    setTimeout(() => { if (resultEl) resultEl.classList.add('hidden'); }, 4000);
   }, 15000);
 }
 
@@ -324,10 +332,7 @@ function loadSettings() {
       _soundMuted = s.soundMuted;
       setSoundEnabled(!_soundMuted);
       const btn = document.getElementById('sound-btn');
-      if (btn) {
-        btn.textContent = _soundMuted ? '🔕' : '🔔';
-        btn.classList.toggle('active', !_soundMuted);
-      }
+      if (btn) { btn.textContent = _soundMuted ? '🔕' : '🔔'; btn.classList.toggle('active', !_soundMuted); }
     }
 
     if (s.volume !== undefined) {
@@ -340,10 +345,7 @@ function loadSettings() {
 
     if (s.soundType) {
       setSoundType(s.soundType);
-      setTimeout(() => {
-        const sel = document.getElementById('alert-sound');
-        if (sel) sel.value = s.soundType;
-      }, 50);
+      setTimeout(() => { const sel = document.getElementById('alert-sound'); if (sel) sel.value = s.soundType; }, 50);
     }
 
     if (s.notifications && document.getElementById('browser-notifications')) {
