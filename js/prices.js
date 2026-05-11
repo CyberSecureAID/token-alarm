@@ -1,19 +1,28 @@
 // ============================================================
-//  prices.js — Multi-source price fetching v4.1
+//  prices.js — Multi-source price fetching v4.2
 //
-//  CORRECCIONES v4.1:
-//    1. Filtro de liquidez ampliado: incluye pares con liquidity.usd = 0 o null
-//       → soluciona que el contrato 0877 no apareciera (liquidez muy baja)
-//    2. Selección del mejor par mejorada: primero por liquidez, luego por volumen
-//    3. Resto de lógica idéntica a v4.0
+//  CORRECCIONES v4.2 (fix token 0877 y tokens sin liquidez):
+//    1. Endpoint DexScreener actualizado a /tokens/v1/bsc/<address>
+//       (el antiguo /latest/dex/tokens/ omite tokens con liquidez ~0)
+//    2. chainId normalizado: se acepta 'bsc' y cualquier variante
+//       que contenga 'bsc' (ej: 'binance-smart-chain' no aplica pero
+//       el nuevo endpoint devuelve 'bsc' directamente)
+//    3. Fallback gecko mejorado: si el fetch multi-token no devuelve
+//       datos para un token, se intenta fetch individual por address
+//    4. Sin filtro de chainId en el nuevo endpoint (ya viene filtrado
+//       por la URL /bsc/)
+//    5. Resto de lógica idéntica a v4.1
 //
 //  FUENTES:
-//    1. DexScreener API (primaria) — CORS nativo, sin proxy
-//    2. GeckoTerminal (fallback)   — CORS nativo
+//    1. DexScreener /tokens/v1/bsc/ (primaria) — CORS nativo, sin proxy
+//    2. GeckoTerminal (fallback)                — CORS nativo
 // ============================================================
 
+// ── ENDPOINTS ─────────────────────────────────────────────
+// Nuevo endpoint v1 (más confiable para tokens con baja liquidez)
+const DEXSCREENER_TOKEN_V1   = 'https://api.dexscreener.com/tokens/v1/bsc/';
+// Endpoint de pares por pairAddress (sigue siendo el viejo, funciona bien)
 const DEXSCREENER_PAIRS_API  = 'https://api.dexscreener.com/latest/dex/pairs/bsc/';
-const DEXSCREENER_TOKEN_API  = 'https://api.dexscreener.com/latest/dex/tokens/';
 const GECKO_API              = 'https://api.geckoterminal.com/api/v2';
 
 // BNB price sources
@@ -111,7 +120,11 @@ async function fetchAllPrices() {
 }
 
 // ============================================================
-//  DEXSCREENER — FUENTE PRIMARIA
+//  DEXSCREENER — FUENTE PRIMARIA v4.2
+//
+//  Cambio clave: se usa el endpoint /tokens/v1/bsc/<address>
+//  que devuelve pares incluso para tokens con liquidez ~0,
+//  a diferencia del antiguo /latest/dex/tokens/<address>
 // ============================================================
 async function fetchViaDexscreener() {
   const tokensWithPair    = TOKENS.filter(t => t.pairAddress);
@@ -137,7 +150,9 @@ async function fetchViaDexscreener() {
             const ok = applyPairData(token, pair);
             if (ok) anyOk = true;
           } else {
+            // pairAddress ya no es válido, redescubrir
             token.pairAddress = null;
+            priceState[token.address].pairAddress = null;
             tokensWithoutPair.push(token);
           }
         });
@@ -146,31 +161,37 @@ async function fetchViaDexscreener() {
       console.warn('[prices] DexScreener pairs fetch error:', err.message);
       tokensWithPair.forEach(t => {
         t.pairAddress = null;
+        priceState[t.address].pairAddress = null;
         tokensWithoutPair.push(t);
       });
     }
   }
 
-  // --- Auto-descubrimiento ---
+  // --- Auto-descubrimiento con el nuevo endpoint v1 ---
   if (tokensWithoutPair.length > 0) {
     for (const token of tokensWithoutPair) {
       try {
-        const url = `${DEXSCREENER_TOKEN_API}${token.address}`;
+        // ── CAMBIO v4.2: nuevo endpoint /tokens/v1/bsc/<address> ──
+        // Este endpoint NO requiere filtrar por chainId (ya viene por red)
+        // y devuelve pares aunque la liquidez sea 0 o muy baja.
+        const url = `${DEXSCREENER_TOKEN_V1}${token.address}`;
         const res = await fetch(url, { cache: 'no-store' });
+
         if (!res.ok) {
+          console.warn(`[prices] DexScreener v1 HTTP ${res.status} para ${contractTag(token.address)}`);
           markTokenError(token.address, `HTTP ${res.status}`);
           continue;
         }
+
         const data = await res.json();
 
-        // ── CORRECCIÓN CRÍTICA v4.1 ──
-        // Se eliminó el filtro `parseFloat(p.liquidity?.usd || 0) > 0`
-        // que excluía tokens con liquidez muy baja o null (ej: contrato 0877).
-        // Ahora se incluyen TODOS los pares en BSC y se ordena por liquidez+volumen.
-        const pairs = (data.pairs || []).filter(p => p.chainId === 'bsc');
+        // El nuevo endpoint devuelve directamente un array de pares en data.pairs
+        // SIN necesidad de filtrar por chainId (ya viene filtrado por /bsc/)
+        const pairs = Array.isArray(data) ? data : (data.pairs || []);
 
         if (pairs.length === 0) {
-          markTokenError(token.address, 'Sin pares en BSC');
+          console.warn(`[prices] Sin pares para ${contractTag(token.address)} en endpoint v1`);
+          markTokenError(token.address, 'Sin pares disponibles');
           continue;
         }
 
@@ -194,7 +215,7 @@ async function fetchViaDexscreener() {
         if (ok) anyOk = true;
 
       } catch (err) {
-        console.warn(`[prices] Discovery error for ${contractTag(token.address)}:`, err.message);
+        console.warn(`[prices] Discovery error para ${contractTag(token.address)}:`, err.message);
         markTokenError(token.address, 'Error de red');
       }
 
@@ -293,11 +314,19 @@ function applyPairData(token, pair) {
 }
 
 // ============================================================
-//  GECKO TERMINAL — FALLBACK
+//  GECKO TERMINAL — FALLBACK v4.2
+//
+//  Mejora: si el fetch multi-token no devuelve datos para un
+//  token específico, se intenta fetch individual. Esto soluciona
+//  tokens que GeckoTerminal no incluye en respuestas multi.
 // ============================================================
 async function fetchViaGecko() {
   const addresses = TOKENS.map(t => t.address.toLowerCase()).join(',');
   const url = `${GECKO_API}/networks/bsc/tokens/multi/${addresses}?include=top_pools`;
+
+  // Resultado del fetch multi
+  let tokensData = [];
+  let poolsData  = [];
 
   try {
     const res = await fetch(url, {
@@ -307,87 +336,113 @@ async function fetchViaGecko() {
     if (!res.ok) throw new Error(`gecko HTTP ${res.status}`);
     const json = await res.json();
 
-    const tokensData = json.data     || [];
-    const poolsData  = json.included || [];
+    tokensData = json.data     || [];
+    poolsData  = json.included || [];
+  } catch (err) {
+    console.warn('[prices] GeckoTerminal multi error:', err.message);
+    // No retornamos false todavía — intentamos fetch individual por cada token
+  }
 
-    const poolById = {};
-    poolsData.forEach(p => { if (p.type === 'pool') poolById[p.id] = p; });
+  const poolById = {};
+  poolsData.forEach(p => { if (p.type === 'pool') poolById[p.id] = p; });
 
-    let anyOk = false;
+  let anyOk = false;
 
-    TOKENS.forEach(token => {
-      const addr  = token.address.toLowerCase();
-      const tData = tokensData.find(d =>
-        d.attributes?.address?.toLowerCase() === addr
-      );
-      const state = priceState[token.address];
+  for (const token of TOKENS) {
+    const addr  = token.address.toLowerCase();
+    let tData   = tokensData.find(d =>
+      d.attributes?.address?.toLowerCase() === addr
+    );
 
-      if (!tData) {
-        markTokenError(token.address, 'No encontrado en GeckoTerminal');
-        return;
-      }
-
-      const attrs = tData.attributes || {};
-
-      const rels = tData.relationships?.top_pools?.data || [];
-      let bestPool = null, bestVol = -1;
-      rels.forEach(ref => {
-        const pool = poolById[ref.id];
-        if (pool) {
-          const vol = parseFloat(pool.attributes?.volume_usd?.h24 || 0);
-          if (vol > bestVol) { bestVol = vol; bestPool = pool; }
+    // ── NUEVO v4.2: si no vino en el multi, fetch individual ──
+    if (!tData) {
+      try {
+        const indRes = await fetch(
+          `${GECKO_API}/networks/bsc/tokens/${addr}?include=top_pools`,
+          {
+            headers: { 'Accept': 'application/json;version=20230302' },
+            cache:   'no-store',
+          }
+        );
+        if (indRes.ok) {
+          const indJson = await indRes.json();
+          // El endpoint individual devuelve data como objeto, no array
+          const indData  = indJson.data;
+          const indPools = indJson.included || [];
+          if (indData) {
+            tData = indData;
+            // Agregar pools al poolById
+            indPools.forEach(p => { if (p.type === 'pool') poolById[p.id] = p; });
+          }
         }
-      });
-
-      const rawPriceUsd = parseFloat(attrs.price_usd || 0);
-
-      let rawPriceNative = 0;
-      if (bestPool) {
-        const poolAttrs = bestPool.attributes || {};
-        rawPriceNative = parseFloat(poolAttrs.base_token_price_native_currency || 0);
+      } catch (indErr) {
+        console.warn(`[prices] GeckoTerminal individual fetch error para ${contractTag(token.address)}:`, indErr.message);
       }
+      await sleep(150);
+    }
 
-      const finalPrice = _simulatedPrices[token.address] !== undefined
-        ? _simulatedPrices[token.address]
-        : rawPriceUsd;
+    const state = priceState[token.address];
 
-      const pca   = bestPool?.attributes?.pool_created_at || null;
-      const txns  = bestPool?.attributes?.transactions?.h24 || {};
-      const buys  = parseInt(txns.buys  || 0);
-      const sells = parseInt(txns.sells || 0);
+    if (!tData) {
+      markTokenError(token.address, 'No encontrado en GeckoTerminal');
+      continue;
+    }
 
-      state.prevPrice         = state.price;
-      state.price             = finalPrice > 0 ? finalPrice : null;
-      state.priceNative       = rawPriceNative > 0 ? rawPriceNative : null;
-      state.priceChange1h     = parseFloat(attrs.price_change_percentage?.h1  || 0);
-      state.priceChange       = parseFloat(attrs.price_change_percentage?.h24 || 0);
-      state.priceChange7d     = parseFloat(attrs.price_change_percentage?.d7  || state.priceChange || 0);
-      state.volume24h         = parseFloat(attrs.volume_usd?.h24 || bestVol || 0);
-      state.liquidity         = bestPool ? parseFloat(bestPool.attributes?.reserve_in_usd || 0) : null;
-      state.marketCap         = parseFloat(attrs.market_cap_usd || 0) || null;
-      state.fdv               = parseFloat(attrs.fdv_usd || 0) || null;
-      state.txns24h           = (buys + sells) || null;
-      state.buys24h           = buys   || null;
-      state.sells24h          = sells  || null;
-      state.pairCreatedAt     = pca;
-      state.lastUpdated       = new Date();
-      state.error             = false;
-      state.errorMsg          = null;
-      state.loading           = false;
-      state.source            = 'gecko';
-      state.symbol            = token.symbol;
-      state.name              = token.name;
+    const attrs = tData.attributes || {};
 
-      if (rawPriceUsd > 0) anyOk = true;
+    const rels = tData.relationships?.top_pools?.data || [];
+    let bestPool = null, bestVol = -1;
+    rels.forEach(ref => {
+      const pool = poolById[ref.id];
+      if (pool) {
+        const vol = parseFloat(pool.attributes?.volume_usd?.h24 || 0);
+        if (vol > bestVol) { bestVol = vol; bestPool = pool; }
+      }
     });
 
-    return anyOk;
+    const rawPriceUsd = parseFloat(attrs.price_usd || 0);
 
-  } catch (err) {
-    console.warn('[prices] GeckoTerminal error:', err.message);
-    markAllError('GeckoTerminal no disponible');
-    return false;
+    let rawPriceNative = 0;
+    if (bestPool) {
+      const poolAttrs = bestPool.attributes || {};
+      rawPriceNative = parseFloat(poolAttrs.base_token_price_native_currency || 0);
+    }
+
+    const finalPrice = _simulatedPrices[token.address] !== undefined
+      ? _simulatedPrices[token.address]
+      : rawPriceUsd;
+
+    const pca   = bestPool?.attributes?.pool_created_at || null;
+    const txns  = bestPool?.attributes?.transactions?.h24 || {};
+    const buys  = parseInt(txns.buys  || 0);
+    const sells = parseInt(txns.sells || 0);
+
+    state.prevPrice         = state.price;
+    state.price             = finalPrice > 0 ? finalPrice : null;
+    state.priceNative       = rawPriceNative > 0 ? rawPriceNative : null;
+    state.priceChange1h     = parseFloat(attrs.price_change_percentage?.h1  || 0);
+    state.priceChange       = parseFloat(attrs.price_change_percentage?.h24 || 0);
+    state.priceChange7d     = parseFloat(attrs.price_change_percentage?.d7  || state.priceChange || 0);
+    state.volume24h         = parseFloat(attrs.volume_usd?.h24 || bestVol || 0);
+    state.liquidity         = bestPool ? parseFloat(bestPool.attributes?.reserve_in_usd || 0) : null;
+    state.marketCap         = parseFloat(attrs.market_cap_usd || 0) || null;
+    state.fdv               = parseFloat(attrs.fdv_usd || 0) || null;
+    state.txns24h           = (buys + sells) || null;
+    state.buys24h           = buys   || null;
+    state.sells24h          = sells  || null;
+    state.pairCreatedAt     = pca;
+    state.lastUpdated       = new Date();
+    state.error             = false;
+    state.errorMsg          = null;
+    state.loading           = false;
+    state.source            = 'gecko';
+    state.symbol            = token.symbol;
+    state.name              = token.name;
+
+    if (rawPriceUsd > 0) anyOk = true;
   }
+
+  return anyOk;
 }
 
 // ============================================================
