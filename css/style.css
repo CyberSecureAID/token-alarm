@@ -1,9 +1,7 @@
 /* ============================================
-   TOKEN ALARM — STYLE SYSTEM v3
+   TOKEN ALARM — STYLE SYSTEM v3.1
    Aesthetic: Executive night — refined dark finance
    Font: Cormorant Garamond + JetBrains Mono + Outfit
-   New: token logos, verified badge, pressure bar,
-        multi-timeframe pills, extended card stats
    ============================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600&display=swap');
@@ -89,6 +87,7 @@ body {
   box-shadow: var(--shadow-lift), 0 0 80px rgba(201,168,76,0.06);
   animation: fadeUp 0.5s ease;
   position: relative; overflow: hidden;
+  cursor: default;
 }
 .unlock-box::before {
   content: '';
@@ -172,7 +171,7 @@ body {
   box-shadow: 0 0 6px var(--accent-green);
   animation: pulse 3s infinite;
 }
-.status-dot.error { background: var(--accent-red); }
+.status-dot.error   { background: var(--accent-red); }
 .status-dot.loading { background: var(--accent-gold); animation: pulse 1.2s infinite; }
 .status-label {
   color: var(--text-secondary); letter-spacing: 1px;
@@ -196,7 +195,7 @@ body {
   display: flex; align-items: center; justify-content: center;
   transition: all var(--transition);
 }
-.icon-btn:hover { border-color: var(--accent-gold-dk); color: var(--accent-gold-lt); background: rgba(201,168,76,0.04); }
+.icon-btn:hover  { border-color: var(--accent-gold-dk); color: var(--accent-gold-lt); background: rgba(201,168,76,0.04); }
 .icon-btn.active { border-color: var(--accent-gold-dk); color: var(--accent-gold); }
 
 /* TICKER */
@@ -294,13 +293,12 @@ main {
   animation: cardPulse 0.5s ease;
 }
 
-/* --- Card top: logo + identity + address --- */
+/* --- Card top --- */
 .card-top {
   display: flex; align-items: flex-start; gap: 14px;
   margin-bottom: 18px;
 }
 
-/* Token logo with verified badge overlay */
 .token-logo-wrap {
   position: relative; flex-shrink: 0;
   width: 48px; height: 48px;
@@ -404,10 +402,8 @@ main {
   color: var(--text-secondary);
 }
 
-/* --- Buy/Sell pressure bar --- */
-.pressure-section {
-  margin-bottom: 16px;
-}
+/* --- Pressure bar --- */
+.pressure-section { margin-bottom: 16px; }
 .pressure-labels {
   display: flex; justify-content: space-between;
   font-family: var(--font-mono); font-size: 10px;
@@ -421,12 +417,11 @@ main {
   border-radius: 2px; overflow: hidden;
 }
 .pressure-fill {
-  height: 100%;
-  border-radius: 2px;
+  height: 100%; border-radius: 2px;
   transition: width 0.6s ease, background 0.4s ease;
 }
 
-/* --- Card alerts section --- */
+/* --- Card alerts --- */
 .card-alerts {
   border-top: 1px solid var(--border);
   padding-top: 12px;
@@ -570,7 +565,7 @@ main {
 .history-item.test  { border-left-color: var(--accent-gold); }
 .history-icon { font-size: 16px; flex-shrink: 0; }
 .history-info { flex: 1; }
-.history-msg { font-size: 12.5px; color: var(--text-primary); }
+.history-msg  { font-size: 12.5px; color: var(--text-primary); }
 .history-note { color: var(--text-muted); }
 .history-time { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); margin-top: 3px; }
 .history-badge {
@@ -611,12 +606,25 @@ main {
 }
 .setting-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
 
-/* Range input with value display */
-.range-row { display: flex; align-items: center; gap: 10px; }
-.range-input { flex: 1; accent-color: var(--accent-gold); }
+/* Range input with value display — FIXED layout */
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.range-input {
+  flex: 1;
+  accent-color: var(--accent-gold);
+  height: 4px;
+  cursor: pointer;
+}
 .range-value {
-  font-family: var(--font-mono); font-size: 11px;
-  color: var(--accent-gold); min-width: 36px; text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-gold);
+  min-width: 36px;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .divider { border: none; border-top: 1px solid var(--border); }
@@ -686,31 +694,31 @@ main {
 
 /* === EMPTY STATE === */
 .empty-state { text-align: center; padding: 48px; color: var(--text-muted); }
-.empty-icon { font-size: 28px; margin-bottom: 14px; opacity: 0.5; }
+.empty-icon  { font-size: 28px; margin-bottom: 14px; opacity: 0.5; }
 .empty-state p { font-size: 12px; line-height: 1.8; font-family: var(--font-mono); letter-spacing: 0.5px; }
 
 /* === UTILITIES === */
 .hidden { display: none !important; }
 
 /* === ANIMATIONS === */
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-@keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes slideIn { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes pulse      { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes ticker     { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes fadeUp     { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideIn    { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
-@keyframes cardPulse { 0% { transform: scale(1); } 50% { transform: scale(1.008); } 100% { transform: scale(1); } }
-@keyframes shimmer { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@keyframes cardPulse  { 0% { transform: scale(1); } 50% { transform: scale(1.008); } 100% { transform: scale(1); } }
+@keyframes shimmer    { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
 /* === RESPONSIVE === */
 @media (max-width: 860px) {
   .tokens-grid { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
-  .card-stats { grid-template-columns: 1fr 1fr; }
+  .card-stats  { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 640px) {
   main { padding: 24px 16px 56px; }
   .header-inner { padding: 0 18px; }
-  .tokens-grid { grid-template-columns: 1fr; }
-  .form-grid { grid-template-columns: 1fr; }
+  .tokens-grid  { grid-template-columns: 1fr; }
+  .form-grid    { grid-template-columns: 1fr; }
   .settings-panel { width: 100%; }
   .logo { font-size: 20px; letter-spacing: 4px; }
 }
