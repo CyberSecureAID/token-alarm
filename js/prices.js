@@ -1,15 +1,11 @@
 // ============================================================
-//  prices.js — Multi-source price fetching v4.0
+//  prices.js — Multi-source price fetching v4.1
 //
-//  CORRECCIONES CRÍTICAS:
-//    1. Se busca cada token por su PAIR ADDRESS (no token address)
-//       → elimina ambigüedad base/quote y precios incorrectos
-//    2. Auto-descubrimiento del par con mayor liquidez en BSC
-//    3. priceNative (BNB) es la referencia principal
-//    4. priceUsd es conversión secundaria (via BNB price)
-//    5. Validación estricta: precios fuera de rango se descartan
-//    6. Watcher con reconexión automática y backoff exponencial
-//    7. Sin corsproxy — DexScreener API tiene CORS abierto
+//  CORRECCIONES v4.1:
+//    1. Filtro de liquidez ampliado: incluye pares con liquidity.usd = 0 o null
+//       → soluciona que el contrato 0877 no apareciera (liquidez muy baja)
+//    2. Selección del mejor par mejorada: primero por liquidez, luego por volumen
+//    3. Resto de lógica idéntica a v4.0
 //
 //  FUENTES:
 //    1. DexScreener API (primaria) — CORS nativo, sin proxy
@@ -34,13 +30,13 @@ let _watcherTimer      = null;
 let _consecutiveFails  = 0;
 let _maxFails          = 5;
 let _backoffMs         = 5000;
-let _currentBnbPrice   = null;   // USD price of BNB
+let _currentBnbPrice   = null;
 let _lastSuccessfulFetch = 0;
 
 function setPriceUpdateCallback(fn) { _onPriceUpdate = fn; }
 
 // ============================================================
-//  BNB PRICE — necesario para convertir priceNative → USD
+//  BNB PRICE
 // ============================================================
 async function fetchBnbPrice() {
   for (const url of BNB_PRICE_APIS) {
@@ -51,14 +47,13 @@ async function fetchBnbPrice() {
       const pairs = data.pairs || (data.pair ? [data.pair] : []);
       for (const pair of pairs) {
         const p = parseFloat(pair.priceUsd || 0);
-        if (p > 100 && p < 10000) {   // BNB razonablemente entre $100-$10000
+        if (p > 100 && p < 10000) {
           _currentBnbPrice = p;
           return p;
         }
       }
     } catch {}
   }
-  // Fallback: intentar GeckoTerminal para BNB
   try {
     const res = await fetch(
       `${GECKO_API}/networks/bsc/tokens/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c`,
@@ -74,20 +69,18 @@ async function fetchBnbPrice() {
       }
     }
   } catch {}
-  return _currentBnbPrice; // usar último conocido
+  return _currentBnbPrice;
 }
 
 // ============================================================
-//  MAIN FETCH — obtiene precio correcto para cada token
+//  MAIN FETCH
 // ============================================================
 async function fetchAllPrices() {
-  // Actualizar precio de BNB en paralelo
   fetchBnbPrice().catch(() => {});
 
   let anyOk = false;
 
   try {
-    // Intentar DexScreener primero
     anyOk = await fetchViaDexscreener();
 
     if (!anyOk) {
@@ -103,8 +96,8 @@ async function fetchAllPrices() {
   }
 
   if (anyOk) {
-    _consecutiveFails  = 0;
-    _backoffMs         = 5000;
+    _consecutiveFails    = 0;
+    _backoffMs           = 5000;
     _lastSuccessfulFetch = Date.now();
   } else {
     _consecutiveFails++;
@@ -119,21 +112,14 @@ async function fetchAllPrices() {
 
 // ============================================================
 //  DEXSCREENER — FUENTE PRIMARIA
-//  Estrategia:
-//    1. Si el token tiene pairAddress guardado → fetch directo al par
-//    2. Si no → buscar por token address y seleccionar el par
-//       con mayor liquidez en BSC → guardar pairAddress
-//    3. Determinar si el token es base o quote del par
-//    4. Extraer priceNative (en BNB o vs quote token)
 // ============================================================
 async function fetchViaDexscreener() {
-  // Separar tokens con pairAddress conocido de los que necesitan descubrimiento
   const tokensWithPair    = TOKENS.filter(t => t.pairAddress);
   const tokensWithoutPair = TOKENS.filter(t => !t.pairAddress);
 
   let anyOk = false;
 
-  // --- 1. Fetch tokens con pairAddress conocido ---
+  // --- Fetch tokens con pairAddress conocido ---
   if (tokensWithPair.length > 0) {
     const pairAddresses = tokensWithPair.map(t => t.pairAddress).join(',');
     try {
@@ -151,7 +137,6 @@ async function fetchViaDexscreener() {
             const ok = applyPairData(token, pair);
             if (ok) anyOk = true;
           } else {
-            // Par no encontrado — forzar redescubrimiento
             token.pairAddress = null;
             tokensWithoutPair.push(token);
           }
@@ -159,7 +144,6 @@ async function fetchViaDexscreener() {
       }
     } catch (err) {
       console.warn('[prices] DexScreener pairs fetch error:', err.message);
-      // Mover todos a descubrimiento
       tokensWithPair.forEach(t => {
         t.pairAddress = null;
         tokensWithoutPair.push(t);
@@ -167,7 +151,7 @@ async function fetchViaDexscreener() {
     }
   }
 
-  // --- 2. Auto-descubrimiento para tokens sin pairAddress ---
+  // --- Auto-descubrimiento ---
   if (tokensWithoutPair.length > 0) {
     for (const token of tokensWithoutPair) {
       try {
@@ -178,21 +162,31 @@ async function fetchViaDexscreener() {
           continue;
         }
         const data = await res.json();
-        const pairs = (data.pairs || []).filter(p =>
-          p.chainId === 'bsc' && parseFloat(p.liquidity?.usd || 0) > 0
-        );
+
+        // ── CORRECCIÓN CRÍTICA v4.1 ──
+        // Se eliminó el filtro `parseFloat(p.liquidity?.usd || 0) > 0`
+        // que excluía tokens con liquidez muy baja o null (ej: contrato 0877).
+        // Ahora se incluyen TODOS los pares en BSC y se ordena por liquidez+volumen.
+        const pairs = (data.pairs || []).filter(p => p.chainId === 'bsc');
 
         if (pairs.length === 0) {
           markTokenError(token.address, 'Sin pares en BSC');
           continue;
         }
 
-        // Seleccionar par con mayor liquidez
-        const bestPair = pairs.reduce((best, p) =>
-          parseFloat(p.liquidity?.usd || 0) > parseFloat(best.liquidity?.usd || 0) ? p : best
-        );
+        // Seleccionar mejor par: mayor liquidez; si empatan, mayor volumen 24h
+        const bestPair = pairs.reduce((best, p) => {
+          const liqP    = parseFloat(p.liquidity?.usd || 0);
+          const liqBest = parseFloat(best.liquidity?.usd || 0);
+          if (liqP > liqBest) return p;
+          if (liqP === liqBest) {
+            const volP    = parseFloat(p.volume?.h24 || 0);
+            const volBest = parseFloat(best.volume?.h24 || 0);
+            return volP > volBest ? p : best;
+          }
+          return best;
+        });
 
-        // Guardar pairAddress para futuras llamadas
         token.pairAddress = bestPair.pairAddress;
         priceState[token.address].pairAddress = bestPair.pairAddress;
 
@@ -204,7 +198,6 @@ async function fetchViaDexscreener() {
         markTokenError(token.address, 'Error de red');
       }
 
-      // Pequeña pausa entre requests para no sobrecargar la API
       await sleep(120);
     }
   }
@@ -214,36 +207,24 @@ async function fetchViaDexscreener() {
 
 // ============================================================
 //  Aplica datos de un par al estado del token
-//  Retorna true si el precio es válido
 // ============================================================
 function applyPairData(token, pair) {
   const state   = priceState[token.address];
   const addr    = token.address.toLowerCase();
 
-  // Determinar si el token es baseToken o quoteToken
   const isBase  = pair.baseToken?.address?.toLowerCase() === addr;
   const isQuote = pair.quoteToken?.address?.toLowerCase() === addr;
 
   if (!isBase && !isQuote) {
-    // Caso raro: el token no aparece en ningún lado del par
-    // Intentar con la primera posición
     console.warn(`[prices] Token ${contractTag(token.address)} no encontrado en par, usando baseToken`);
   }
 
-  // ── PRECIO ──
-  // DexScreener siempre da priceUsd del baseToken
-  // priceNative es el precio del baseToken en términos del quoteToken
   let rawPriceUsd    = parseFloat(pair.priceUsd || 0);
   let rawPriceNative = parseFloat(pair.priceNative || 0);
 
-  // Si el token es el quoteToken, invertir
   if (isQuote && !isBase) {
-    // El precio del quoteToken en términos del baseToken
-    if (rawPriceNative > 0) {
-      rawPriceNative = 1 / rawPriceNative;
-    }
+    if (rawPriceNative > 0) rawPriceNative = 1 / rawPriceNative;
     if (rawPriceUsd > 0) {
-      // Calcular USD del quoteToken a través del native price
       const quoteSymbol = pair.quoteToken?.symbol?.toUpperCase() || '';
       if (quoteSymbol === 'BNB' || quoteSymbol === 'WBNB') {
         rawPriceUsd = rawPriceNative * (_currentBnbPrice || 0);
@@ -255,12 +236,9 @@ function applyPairData(token, pair) {
     }
   }
 
-  // ── VALIDACIÓN DE PRECIO ──
-  // Rechazar precios claramente erróneos (NaN, negativos, infinitos)
   if (!isFinite(rawPriceUsd)    || rawPriceUsd < 0)    rawPriceUsd = 0;
   if (!isFinite(rawPriceNative) || rawPriceNative < 0) rawPriceNative = 0;
 
-  // Si tenemos priceNative pero no USD, calcular via BNB
   const quoteTokenSymbol = (pair.quoteToken?.symbol || '').toUpperCase();
   if (rawPriceUsd === 0 && rawPriceNative > 0) {
     if (quoteTokenSymbol === 'BNB' || quoteTokenSymbol === 'WBNB') {
@@ -270,7 +248,6 @@ function applyPairData(token, pair) {
     }
   }
 
-  // Aplicar simulación si existe
   const finalPriceUsd    = _simulatedPrices[token.address] !== undefined
     ? _simulatedPrices[token.address]
     : rawPriceUsd;
@@ -279,19 +256,17 @@ function applyPairData(token, pair) {
     ? (_currentBnbPrice > 0 ? _simulatedPrices[token.address] / _currentBnbPrice : rawPriceNative)
     : rawPriceNative;
 
-  // ── MÉTRICAS ──
   const txns  = pair.txns?.h24 || {};
   const buys  = parseInt(txns.buys  || 0);
   const sells = parseInt(txns.sells || 0);
 
-  // ── ACTUALIZAR STATE ──
   state.prevPrice         = state.price;
   state.prevPriceNative   = state.priceNative;
   state.price             = finalPriceUsd    > 0 ? finalPriceUsd    : null;
   state.priceNative       = finalPriceNative > 0 ? finalPriceNative : null;
   state.priceChange1h     = parseFloat(pair.priceChange?.h1  || 0);
   state.priceChange       = parseFloat(pair.priceChange?.h24 || 0);
-  state.priceChange7d     = parseFloat(pair.priceChange?.h24 || 0); // DexScreener no da 7d siempre
+  state.priceChange7d     = parseFloat(pair.priceChange?.h24 || 0);
   state.volume24h         = parseFloat(pair.volume?.h24  || 0);
   state.liquidity         = parseFloat(pair.liquidity?.usd || 0);
   state.marketCap         = parseFloat(pair.marketCap || pair.fdv || 0) || null;
@@ -354,7 +329,6 @@ async function fetchViaGecko() {
 
       const attrs = tData.attributes || {};
 
-      // Seleccionar pool con mayor volumen 24h
       const rels = tData.relationships?.top_pools?.data || [];
       let bestPool = null, bestVol = -1;
       rels.forEach(ref => {
@@ -367,11 +341,9 @@ async function fetchViaGecko() {
 
       const rawPriceUsd = parseFloat(attrs.price_usd || 0);
 
-      // Intentar obtener precio en BNB desde el pool
       let rawPriceNative = 0;
       if (bestPool) {
         const poolAttrs = bestPool.attributes || {};
-        // GeckoTerminal a veces da base_token_price_native_currency
         rawPriceNative = parseFloat(poolAttrs.base_token_price_native_currency || 0);
       }
 
@@ -379,8 +351,8 @@ async function fetchViaGecko() {
         ? _simulatedPrices[token.address]
         : rawPriceUsd;
 
-      const pca  = bestPool?.attributes?.pool_created_at || null;
-      const txns = bestPool?.attributes?.transactions?.h24 || {};
+      const pca   = bestPool?.attributes?.pool_created_at || null;
+      const txns  = bestPool?.attributes?.transactions?.h24 || {};
       const buys  = parseInt(txns.buys  || 0);
       const sells = parseInt(txns.sells || 0);
 
@@ -428,7 +400,7 @@ function scheduleReconnect() {
     console.log('[prices] Intentando reconexión...');
     _consecutiveFails = 0;
     await fetchAllPrices();
-    _backoffMs = Math.min(_backoffMs * 2, 120000); // max 2 min
+    _backoffMs = Math.min(_backoffMs * 2, 120000);
   }, _backoffMs);
 }
 
@@ -440,8 +412,8 @@ function markAllError(msg = 'Sin datos') {
 }
 
 function markTokenError(address, msg = 'Sin datos') {
-  const s   = priceState[address];
-  s.error   = true;
+  const s    = priceState[address];
+  s.error    = true;
   s.errorMsg = msg;
   s.loading  = false;
 }
@@ -483,8 +455,8 @@ function startPolling(intervalMs) {
 }
 
 function stopPolling() {
-  if (_pollTimer)   { clearInterval(_pollTimer);  _pollTimer   = null; }
-  if (_watcherTimer){ clearTimeout(_watcherTimer); _watcherTimer = null; }
+  if (_pollTimer)    { clearInterval(_pollTimer);   _pollTimer    = null; }
+  if (_watcherTimer) { clearTimeout(_watcherTimer); _watcherTimer = null; }
 }
 
 function restartPolling(intervalMs) {
@@ -492,7 +464,6 @@ function restartPolling(intervalMs) {
   startPolling(intervalMs);
 }
 
-// Exponemos para debug desde consola
 window._debugPrices = () => {
   console.table(TOKENS.map(t => ({
     tag:         contractTag(t.address),
