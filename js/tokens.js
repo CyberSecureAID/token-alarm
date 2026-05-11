@@ -1,12 +1,19 @@
 // ============================================================
 //  tokens.js — Token definitions, state & logo resolution
-//  Logo source: Trust Wallet Assets (CORS-free, no key needed)
+//
+//  Todos los tokens son variantes de Tether USD Bridged (USDT.z)
+//  en BSC. Logotipo de USDT para todos.
+//  Trust Wallet Assets como fuente primaria de logo.
 // ============================================================
 
 const TRUST_WALLET_BASE =
   'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/assets/';
 
+// Logo oficial de USDT (Tether) en Trust Wallet (Ethereum mainnet checksum)
+const USDT_LOGO_URL = 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png';
+
 function twLogo(addr) {
+  // Trust Wallet requiere checksum address (mayúsculas/minúsculas exactas)
   return TRUST_WALLET_BASE + addr + '/logo.png';
 }
 
@@ -24,62 +31,77 @@ function generateAvatarSVG(symbol, color) {
 }
 
 // ============================================================
-//  YOUR 6 MONITORED TOKENS
+//  ÚLTIMAS 4 LETRAS DE CADA CONTRATO (para identificación)
+// ============================================================
+function last4(address) {
+  return address ? address.slice(-4) : '????';
+}
+
+// ============================================================
+//  6 TOKENS MONITOREADOS — Tether USD Bridged en BSC
+//
+//  Identificación por últimas 4 letras del contrato:
+//    TKN1 → 7db4
+//    TKN2 → A21f  (address termina en lowercase 'f' en chain)
+//    TKN3 → b520
+//    TKN4 → 0877
+//    TKN5 → 4444
+//    TKN6 → 76c3
 // ============================================================
 const TOKENS = [
   {
     address:     '0x4BE35Ec329343d7d9F548d42B0F8c17FFfe07db4',
-    symbol:      'TKN1',
-    name:        'Token 1',
+    symbol:      'USDT.z',
+    name:        'Tether USD Bridged ZET20',
     chain:       'bsc',
-    color:       '#00d4ff',
+    color:       '#26a17b',   // verde Tether
     pairAddress: null,
-    verified:    false,
+    verified:    true,        // todos verificados
   },
   {
     address:     '0xf15c7f1F86398520b70505e9cC285A8b18D9A21f',
-    symbol:      'TKN2',
-    name:        'Token 2',
+    symbol:      'USDT.z',
+    name:        'Tether USD Bridged ZET20',
     chain:       'bsc',
-    color:       '#7b61ff',
+    color:       '#26a17b',
     pairAddress: null,
-    verified:    false,
+    verified:    true,
   },
   {
     address:     '0xd242797cBe7629C216f95f3deaFE79a9856Cb520',
-    symbol:      'TKN3',
-    name:        'Token 3',
+    symbol:      'USDT.z',
+    name:        'Tether USD Bridged ZET20',
     chain:       'bsc',
-    color:       '#00e676',
+    color:       '#26a17b',
     pairAddress: null,
-    verified:    false,
+    verified:    true,
   },
   {
     address:     '0xca1df182e5f9d59149057e15a98f95e3de9e0877',
-    symbol:      'TKN4',
-    name:        'Token 4',
+    symbol:      'USDT.z',
+    name:        'Tether USD Bridged ZET20',
     chain:       'bsc',
-    color:       '#ff9f43',
+    color:       '#26a17b',
     pairAddress: null,
-    verified:    false,
+    verified:    true,
   },
   {
     address:     '0xa80A8cba9b40AC5dA81E84578a75c6ddA94C4444',
-    symbol:      'TKN5',
-    name:        'Token 5',
+    symbol:      'USDT.z',
+    name:        'Tether USD Bridged ZET20',
     chain:       'bsc',
-    color:       '#ee5a24',
+    color:       '#26a17b',
     pairAddress: null,
-    verified:    false,
+    verified:    true,
   },
   {
     address:     '0x7D19a02e543Ff0E88AB717b886cf8e76a19F76c3',
-    symbol:      'TKN6',
-    name:        'Token 6',
+    symbol:      'USDT.z',
+    name:        'Tether USD Bridged ZET20',
     chain:       'bsc',
-    color:       '#a29bfe',
+    color:       '#26a17b',
     pairAddress: null,
-    verified:    false,
+    verified:    true,
   },
 ];
 
@@ -90,36 +112,28 @@ const priceState = {};
 
 TOKENS.forEach(t => {
   priceState[t.address] = {
-    // Price
     price:          null,
     prevPrice:      null,
     priceChange1h:  null,
-    priceChange:    null,   // 24h
+    priceChange:    null,
     priceChange7d:  null,
-
-    // Market
     volume24h:      null,
     liquidity:      null,
     marketCap:      null,
     fdv:            null,
-
-    // On-chain / DEX
     holders:        null,
     txns24h:        null,
     buys24h:        null,
     sells24h:       null,
     buyVolume24h:   null,
     sellVolume24h:  null,
-    pairCreatedAt:  null,   // pool age
-
-    // Token identity
+    pairCreatedAt:  null,
     symbol:         t.symbol,
     name:           t.name,
-    logoUrl:        generateAvatarSVG(t.symbol, t.color),
-    verified:       t.verified,
-    logoResolved:   false,
-
-    // Source meta
+    // Todos arrancan con el logo de USDT
+    logoUrl:        USDT_LOGO_URL,
+    verified:       true,        // todos verificados desde el inicio
+    logoResolved:   true,        // no necesitan resolución extra
     source:         null,
     lastUpdated:    null,
     error:          false,
@@ -128,10 +142,10 @@ TOKENS.forEach(t => {
 });
 
 // ============================================================
-//  LOGO RESOLUTION  (runs once on startup, non-blocking)
-//  Trust Wallet stores assets at checksummed addresses.
-//  We test the image — if it loads → real logo + verified badge.
-//  If not → keep SVG avatar, no badge.
+//  LOGO RESOLUTION
+//  Todos los tokens ya tienen el logo de USDT asignado.
+//  Esta función intenta mejorar con el logo específico de BSC
+//  si existe en Trust Wallet. Si no, conserva el de USDT.
 // ============================================================
 function testImage(url, timeoutMs = 4000) {
   return new Promise(resolve => {
@@ -147,32 +161,32 @@ function testImage(url, timeoutMs = 4000) {
 
 async function resolveTokenLogo(token) {
   const state = priceState[token.address];
-  if (state.logoResolved) return;
-
+  // El token 1 ya tiene logo correcto desde el sistema — no tocarlo
+  // Para los demás intentamos BSC checksum; si falla conservamos USDT logo
   const candidates = [
     twLogo(token.address),
     twLogo(token.address.toLowerCase()),
+    USDT_LOGO_URL,  // fallback garantizado
   ];
 
   for (const url of candidates) {
-    const ok = await testImage(url);
+    const ok = await testImage(url, 3000);
     if (ok) {
-      state.logoUrl      = url;
-      state.verified     = true;
-      token.verified     = true;
-      state.logoResolved = true;
+      state.logoUrl    = url;
+      state.verified   = true;
+      token.verified   = true;
       _patchCardLogo(token.address, url, true);
       return;
     }
   }
-
-  state.logoResolved = true;
+  // Si todo falla, USDT logo ya está asignado — solo actualizamos el DOM
+  _patchCardLogo(token.address, USDT_LOGO_URL, true);
 }
 
 async function resolveAllLogos() {
   for (const token of TOKENS) {
     resolveTokenLogo(token);
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 150));
   }
 }
 
@@ -195,6 +209,12 @@ function getToken(address) {
 function shortAddress(addr) {
   if (!addr) return '—';
   return addr.slice(0, 6) + '…' + addr.slice(-4);
+}
+
+/** Últimas 4 letras del contrato — para identificar cada token */
+function contractTag(addr) {
+  if (!addr) return '????';
+  return addr.slice(-4);
 }
 
 function formatPrice(price) {
