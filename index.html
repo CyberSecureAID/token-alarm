@@ -4,9 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TOKEN ALARM — Price Alert System</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -41,7 +38,7 @@
         <span class="status-dot" id="status-dot"></span>
         <span class="status-label" id="status-label">INICIALIZANDO</span>
         <span class="network-badge" id="network-badge">BSC</span>
-        <span class="network-badge" id="source-badge" style="border-color:rgba(107,143,170,0.3);color:var(--text-muted)">—</span>
+        <span class="network-badge" id="source-badge">—</span>
       </div>
       <div class="header-controls">
         <button id="refresh-btn" class="icon-btn" title="Actualizar precios">↻</button>
@@ -60,7 +57,7 @@
     <section class="section-tokens">
       <div class="section-header">
         <h2 class="section-title">TOKENS MONITOREADOS</h2>
-        <span class="section-count" id="tokens-count">3 tokens</span>
+        <span class="section-count" id="tokens-count">6 tokens</span>
       </div>
       <div class="tokens-grid" id="tokens-grid">
         <!-- Token cards injected by JS -->
@@ -192,7 +189,7 @@
       </div>
       <hr class="divider" />
       <div class="setting-group">
-        <label style="color: var(--accent-yellow);">⚠ MODO DE PRUEBA</label>
+        <label style="color: var(--accent-gold);">⚠ MODO DE PRUEBA</label>
         <p class="setting-desc">Simula un evento de precio para verificar que las alertas funcionan correctamente.</p>
         <div class="test-controls">
           <select id="test-token" class="form-control">
