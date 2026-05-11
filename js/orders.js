@@ -1,22 +1,19 @@
 // ============================================================
-//  orders.js — Limit order management (localStorage)
+//  orders.js — Limit order / price alert management (localStorage)
 // ============================================================
 
 const ORDERS_KEY = 'token_alarm_orders';
 
 function loadOrders() {
-  try {
-    return JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]');
-  } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]'); }
+  catch { return []; }
 }
 
 function saveOrders(orders) {
   localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
 }
 
-function getOrders() {
-  return loadOrders();
-}
+function getOrders() { return loadOrders(); }
 
 function addOrder({ tokenAddress, type, price, note, repeat, browserNotify }) {
   const orders = loadOrders();
@@ -24,8 +21,8 @@ function addOrder({ tokenAddress, type, price, note, repeat, browserNotify }) {
   const order  = {
     id:            Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     tokenAddress,
-    tokenSymbol:   token?.symbol || shortAddress(tokenAddress),
-    type,            // 'below' | 'above'
+    tokenSymbol:   token?.symbol || 'USDT.z',
+    type,
     price:         parseFloat(price),
     note:          note || '',
     repeat:        !!repeat,
@@ -40,18 +37,15 @@ function addOrder({ tokenAddress, type, price, note, repeat, browserNotify }) {
 }
 
 function deleteOrder(id) {
-  const orders = loadOrders().filter(o => o.id !== id);
-  saveOrders(orders);
+  saveOrders(loadOrders().filter(o => o.id !== id));
 }
 
 function markOrderTriggered(id) {
   const orders = loadOrders();
   const order  = orders.find(o => o.id === id);
   if (!order) return;
-
   if (order.repeat) {
     order.triggeredAt = new Date().toISOString();
-    // Keep active — can fire again next cycle after cooldown
   } else {
     order.triggered   = true;
     order.triggeredAt = new Date().toISOString();
@@ -59,30 +53,25 @@ function markOrderTriggered(id) {
   saveOrders(orders);
 }
 
-// ---- Evaluate all active orders against current prices ----
-let _lastTriggered = {};   // id → timestamp (cooldown for repeat orders)
+let _lastTriggered = {};
+const COOLDOWN = 60 * 1000;
 
 function evaluateOrders() {
-  const orders   = loadOrders();
-  const fired    = [];
-  const now      = Date.now();
-  const COOLDOWN = 60 * 1000; // 60s cooldown for repeat orders
+  const orders = loadOrders();
+  const fired  = [];
+  const now    = Date.now();
 
   orders.forEach(order => {
-    if (order.triggered) return; // permanently done
-
+    if (order.triggered) return;
     const state = priceState[order.tokenAddress];
     if (!state || state.price === null || state.error) return;
 
-    const price     = state.price;
-    let shouldFire  = false;
-
+    const price      = state.price;
+    let shouldFire   = false;
     if (order.type === 'below' && price <= order.price) shouldFire = true;
     if (order.type === 'above' && price >= order.price) shouldFire = true;
-
     if (!shouldFire) return;
 
-    // Cooldown for repeat orders
     if (order.repeat) {
       const lastFire = _lastTriggered[order.id] || 0;
       if (now - lastFire < COOLDOWN) return;
@@ -97,14 +86,5 @@ function evaluateOrders() {
 }
 
 function updateOrderSymbols() {
-  const orders = loadOrders();
-  let changed = false;
-  orders.forEach(o => {
-    const state = priceState[o.tokenAddress];
-    if (state?.symbol && state.symbol !== o.tokenSymbol) {
-      o.tokenSymbol = state.symbol;
-      changed = true;
-    }
-  });
-  if (changed) saveOrders(orders);
+  // Todos los tokens son USDT.z — símbolo estático, no necesita actualización
 }
