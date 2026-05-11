@@ -1,10 +1,85 @@
 // ============================================================
 //  ui.js — DOM rendering & UI updates
-//  Features: token logo + verified badge, extended data cards,
-//            buy/sell pressure bar, multi-timeframe % changes
+//  Fixes:
+//    - Ticker infinito sin reinicio (JS-driven, no CSS animation)
+//    - Identificación por últimas 4 letras del contrato
+//    - Badge verificado en todos los tokens
+//    - Logo USDT para todos
+//    - Texto blanco/claro legible
+//    - Terminología de alertas (no exchange)
 // ============================================================
 
-// ---- Token Cards ----
+// ============================================================
+//  TICKER — Infinite seamless scroll via JS
+// ============================================================
+let _tickerRAF    = null;
+let _tickerX      = 0;
+let _tickerSpeed  = 0.6;   // px por frame
+let _tickerWidth  = 0;
+let _tickerReady  = false;
+
+function buildTickerHTML() {
+  let items = '';
+  TOKENS.forEach(t => {
+    const s    = priceState[t.address];
+    const ch   = (s && s.priceChange) ? s.priceChange : 0;
+    const cls  = ch >= 0 ? 'up' : 'down';
+    const sgn  = ch >= 0 ? '+' : '';
+    const tag  = contractTag(t.address);
+    const sym  = (s && s.symbol) ? s.symbol : t.symbol;
+    const price = (s && s.price !== null) ? formatPrice(s.price) : '—';
+
+    items += `<span class="ticker-item">` +
+      `<span class="name">${sym}</span>` +
+      `<span class="ticker-tag">(${tag})</span>` +
+      `&nbsp;${price}&nbsp;` +
+      `<span class="${cls}">${sgn}${ch.toFixed(2)}%</span>` +
+      `</span>`;
+  });
+  return items;
+}
+
+function updateTicker() {
+  const innerA = document.getElementById('ticker-inner-a');
+  const innerB = document.getElementById('ticker-inner-b');
+  if (!innerA || !innerB) return;
+
+  const html = buildTickerHTML();
+  innerA.innerHTML = html;
+  innerB.innerHTML = html;
+
+  // Medir ancho del bloque A para saber cuándo reiniciar
+  _tickerReady = false;
+  requestAnimationFrame(() => {
+    _tickerWidth = innerA.offsetWidth;
+    _tickerReady = true;
+    if (!_tickerRAF) startTickerLoop();
+  });
+}
+
+function startTickerLoop() {
+  const track = document.getElementById('ticker-track');
+  if (!track) return;
+
+  function step() {
+    _tickerX -= _tickerSpeed;
+
+    // Cuando A salió completamente, reseteamos al inicio
+    if (_tickerWidth > 0 && Math.abs(_tickerX) >= _tickerWidth) {
+      _tickerX = 0;
+    }
+
+    track.style.transform = `translateX(${_tickerX}px)`;
+    _tickerRAF = requestAnimationFrame(step);
+  }
+
+  if (_tickerRAF) cancelAnimationFrame(_tickerRAF);
+  _tickerRAF = requestAnimationFrame(step);
+}
+
+// ============================================================
+//  TOKEN CARDS
+// ============================================================
 function renderTokenCards() {
   const grid = document.getElementById('tokens-grid');
   if (!grid) return;
@@ -24,7 +99,7 @@ function buildTokenCard(token, state) {
   const card = document.createElement('div');
   card.className = 'token-card' + (state.loading ? ' card-loading' : '');
   card.id = 'card-' + token.address;
-  card.style.setProperty('--card-accent', token.color);
+  card.style.setProperty('--card-accent', token.color || '#26a17b');
 
   const price     = state.price;
   const prevPrice = state.prevPrice;
@@ -32,7 +107,6 @@ function buildTokenCard(token, state) {
     ? (price > prevPrice ? 'up' : price < prevPrice ? 'down' : '')
     : '';
 
-  // Buy/sell pressure
   const totalTxns    = (state.buys24h || 0) + (state.sells24h || 0);
   const buyPct       = totalTxns > 0 ? Math.round((state.buys24h / totalTxns) * 100) : 50;
   const sellPct      = 100 - buyPct;
@@ -49,16 +123,18 @@ function buildTokenCard(token, state) {
   );
 
   const isSimulated = isSimulating(token.address);
+  const tag         = contractTag(token.address);
+  const logoSrc     = state.logoUrl || USDT_LOGO_URL;
 
   card.innerHTML = `
     <div class="card-top">
       <div class="token-logo-wrap">
         <img class="token-logo"
-             src="${state.logoUrl || generateAvatarSVG(state.symbol || token.symbol, token.color)}"
+             src="${logoSrc}"
              alt="${state.symbol}"
-             onerror="this.src='${generateAvatarSVG(state.symbol || token.symbol, token.color)}'"
+             onerror="this.src='${USDT_LOGO_URL}'"
         />
-        <span class="verified-badge${state.verified ? '' : ' hidden'}" title="Verificado en Trust Wallet">✓</span>
+        <span class="verified-badge" title="Token verificado">✓</span>
       </div>
 
       <div class="token-identity">
@@ -69,8 +145,8 @@ function buildTokenCard(token, state) {
           : ''}
       </div>
 
-      <div class="token-address" onclick="copyAddress('${token.address}')" title="Copiar dirección">
-        ${shortAddress(token.address)} <span style="opacity:0.4">⎘</span>
+      <div class="token-address" onclick="copyAddress('${token.address}')" title="Copiar dirección completa">
+        <span class="contract-tag">${tag}</span> <span style="opacity:0.4">⎘</span>
       </div>
     </div>
 
@@ -108,7 +184,7 @@ function buildTokenCard(token, state) {
         <div class="stat-value">${formatCount(state.txns24h)}</div>
       </div>
       <div class="stat-item">
-        <div class="stat-label">ÓRDENES</div>
+        <div class="stat-label">ALERTAS</div>
         <div class="stat-value" style="color:var(--accent-gold)">${tokenOrders.length}</div>
       </div>
     </div>
@@ -156,7 +232,7 @@ function renderOrderChips(address, orders) {
   `).join('');
 }
 
-// Live price update (without full re-render)
+// ---- Live price update (without full re-render) ----
 function updateCardPrice(tokenAddress) {
   const card  = document.getElementById('card-' + tokenAddress);
   const state = priceState[tokenAddress];
@@ -181,15 +257,16 @@ function updateCardPrice(tokenAddress) {
   }
 
   const sv   = card.querySelectorAll('.stat-value');
+  const activeAlerts = getOrders().filter(o =>
+    o.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() && !o.triggered
+  ).length;
   const vals = [
     formatNumber(state.volume24h),
     formatNumber(state.liquidity),
     formatNumber(state.marketCap),
     formatNumber(state.fdv),
     formatCount(state.txns24h),
-    getOrders().filter(o =>
-      o.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() && !o.triggered
-    ).length,
+    activeAlerts,
   ];
   sv.forEach((el, i) => { if (vals[i] !== undefined) el.textContent = vals[i]; });
 
@@ -222,13 +299,15 @@ function updateCardPrice(tokenAddress) {
   }
 }
 
-// ---- Orders List ----
+// ============================================================
+//  ORDERS (Alertas de precio — sin terminología de exchange)
+// ============================================================
 function renderOrders() {
   const container = document.getElementById('orders-list');
   const empty     = document.getElementById('orders-empty');
   if (!container) return;
 
-  const orders    = getOrders();
+  const orders = getOrders();
 
   Array.from(container.children).forEach(c => {
     if (c.id !== 'orders-empty') c.remove();
@@ -245,9 +324,13 @@ function renderOrders() {
     item.className = 'order-item' + (order.triggered ? ' triggered' : '');
     item.id = 'order-' + order.id;
 
+    const tag  = contractTag(order.tokenAddress);
+    const sym  = order.tokenSymbol || 'USDT.z';
+
+    // Texto sin conceptos de exchange
     const condText = order.type === 'below'
-      ? `Si baja de <span class="price-target">${formatPrice(order.price)}</span>`
-      : `Si sube a  <span class="price-target">${formatPrice(order.price)}</span>`;
+      ? `Alertar si baja de <span class="price-target">${formatPrice(order.price)}</span>`
+      : `Alertar si sube a <span class="price-target">${formatPrice(order.price)}</span>`;
 
     const created = new Date(order.createdAt).toLocaleString('es-AR', {
       dateStyle: 'short', timeStyle: 'short',
@@ -257,7 +340,7 @@ function renderOrders() {
       <div class="order-badge ${order.type}">${order.type === 'below' ? '📉' : '📈'}</div>
       <div class="order-info">
         <div class="order-main">
-          <span class="order-token-tag">${order.tokenSymbol}</span>
+          <span class="order-token-tag">${sym} <span style="opacity:0.6;font-size:9px">(${tag})</span></span>
           <span class="order-condition ${order.type}">${condText}</span>
           ${order.triggered ? '<span class="order-fired">✓ DISPARADA</span>' : ''}
           ${order.repeat    ? '<span class="order-repeat-badge">↻ REPETIR</span>' : ''}
@@ -273,7 +356,9 @@ function renderOrders() {
   });
 }
 
-// ---- Alert History ----
+// ============================================================
+//  ALERT HISTORY
+// ============================================================
 function renderHistory() {
   const container = document.getElementById('alert-history');
   const empty     = document.getElementById('history-empty');
@@ -295,13 +380,15 @@ function renderHistory() {
     const item = document.createElement('div');
     item.className = `history-item ${entry.type}${entry.isTest ? ' test' : ''}`;
     const ts  = new Date(entry.ts).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
-    const dir = entry.type === 'below' ? 'cayó bajo' : 'subió sobre';
+    const tag = contractTag(entry.tokenAddress);
+    const dir = entry.type === 'below' ? 'bajó de' : 'subió a';
 
     item.innerHTML = `
       <div class="history-icon">${entry.isTest ? '🧪' : (entry.type === 'below' ? '📉' : '📈')}</div>
       <div class="history-info">
         <div class="history-msg">
-          <strong>${entry.tokenSymbol || shortAddress(entry.tokenAddress)}</strong>
+          <strong>${entry.tokenSymbol || 'USDT.z'}</strong>
+          <span style="opacity:0.5;font-size:10px">(${tag})</span>
           ${dir} ${formatPrice(entry.targetPrice)}
           — Precio: ${formatPrice(entry.currentPrice)}
           ${entry.note ? `<em class="history-note"> (${entry.note})</em>` : ''}
@@ -314,29 +401,9 @@ function renderHistory() {
   });
 }
 
-// ---- Ticker ----
-function updateTicker() {
-  const inner = document.getElementById('ticker-inner');
-  if (!inner) return;
-
-  let items = '';
-  TOKENS.forEach(t => {
-    const s   = priceState[t.address];
-    const ch  = s.priceChange || 0;
-    const cls = ch >= 0 ? 'up' : 'down';
-    const sgn = ch >= 0 ? '+' : '';
-    items += `
-      <span class="ticker-item">
-        <span class="name">${s.symbol || t.symbol}</span>&nbsp;
-        ${formatPrice(s.price)}&nbsp;
-        <span class="${cls}">${sgn}${ch.toFixed(2)}%</span>
-      </span>`;
-  });
-
-  inner.innerHTML = items + items; // doubled for seamless loop
-}
-
-// ---- Status ----
+// ============================================================
+//  STATUS
+// ============================================================
 function setStatus(state, label) {
   const dot  = document.getElementById('status-dot');
   const text = document.getElementById('status-label');
@@ -358,13 +425,15 @@ function setSourceBadge(source) {
   badge.style.borderColor = s.border;
 }
 
-// ---- Populate selects ----
+// ============================================================
+//  POPULATE SELECTS
+// ============================================================
 function populateTokenSelects() {
   ['order-token', 'test-token'].forEach(id => {
     const sel = document.getElementById(id);
     if (!sel) return;
     sel.innerHTML = TOKENS.map(t =>
-      `<option value="${t.address}">${t.symbol} — ${shortAddress(t.address)}</option>`
+      `<option value="${t.address}">${t.symbol} (${contractTag(t.address)})</option>`
     ).join('');
   });
 }
@@ -378,21 +447,21 @@ function populateSoundSelector() {
   ).join('');
 }
 
-// ---- Copy address ----
+// ============================================================
+//  UTILITIES
+// ============================================================
 function copyAddress(addr) {
   navigator.clipboard?.writeText(addr)
     .then(() => showToast('Dirección copiada', addr, 'success'))
     .catch(() => {});
 }
 
-// ---- Delete & refresh ----
 function deleteOrderAndRefresh(id) {
   deleteOrder(id);
   renderOrders();
   renderTokenCards();
 }
 
-// ---- Order form toggle ----
 function openOrderForm() {
   const c = document.getElementById('order-form-container');
   if (c) c.classList.remove('hidden');
@@ -413,7 +482,6 @@ function closeOrderForm() {
   if (notify) notify.checked = true;
 }
 
-// ---- Settings panel ----
 function openSettings() {
   const panel   = document.getElementById('settings-panel');
   const overlay = document.getElementById('overlay');
@@ -426,9 +494,5 @@ function closeSettings() {
   const overlay = document.getElementById('overlay');
   if (panel)   panel.classList.add('hidden');
   if (overlay) overlay.classList.add('hidden');
-  // sync app.js state flag
-  if (typeof _settingsOpen !== 'undefined') {
-    // eslint-disable-next-line no-global-assign
-    _settingsOpen = false;
-  }
+  if (typeof _settingsOpen !== 'undefined') _settingsOpen = false;
 }
