@@ -1,60 +1,324 @@
 // ============================================================
-//  prices.js — Multi-source price & data fetching
+//  prices.js — Multi-source price fetching v4.0
 //
-//  Sources (no API key required):
-//    1. GeckoTerminal  — price, volume, liquidity, mktcap,
-//                        1h/24h/7d Δ, txns, pool age
-//    2. DexScreener    — buys/sells pressure, pair data,
-//                        fallback price
+//  CORRECCIONES CRÍTICAS:
+//    1. Se busca cada token por su PAIR ADDRESS (no token address)
+//       → elimina ambigüedad base/quote y precios incorrectos
+//    2. Auto-descubrimiento del par con mayor liquidez en BSC
+//    3. priceNative (BNB) es la referencia principal
+//    4. priceUsd es conversión secundaria (via BNB price)
+//    5. Validación estricta: precios fuera de rango se descartan
+//    6. Watcher con reconexión automática y backoff exponencial
+//    7. Sin corsproxy — DexScreener API tiene CORS abierto
 //
-//  CORS-safe on GitHub Pages via corsproxy.io for DexScreener
+//  FUENTES:
+//    1. DexScreener API (primaria) — CORS nativo, sin proxy
+//    2. GeckoTerminal (fallback)   — CORS nativo
 // ============================================================
 
-const GECKO_API        = 'https://api.geckoterminal.com/api/v2';
-const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex/tokens/';
-const CORS_PROXY       = 'https://corsproxy.io/?url=';
+const DEXSCREENER_PAIRS_API  = 'https://api.dexscreener.com/latest/dex/pairs/bsc/';
+const DEXSCREENER_TOKEN_API  = 'https://api.dexscreener.com/latest/dex/tokens/';
+const GECKO_API              = 'https://api.geckoterminal.com/api/v2';
 
-let _activeSource     = 'gecko';
-let _simulatedPrices  = {};
-let _onPriceUpdate    = null;
-let _consecutiveFails = 0;
-let _pollTimer        = null;
+// BNB price sources
+const BNB_PRICE_APIS = [
+  'https://api.dexscreener.com/latest/dex/pairs/bsc/0x58f876857a02d6762e0101bb5c46a8c1ed44dc16', // BNB/BUSD
+  'https://api.dexscreener.com/latest/dex/pairs/bsc/0x16b9a82891338f9bA80E2D6970FddA79D1eb0daE', // BNB/USDT
+];
+
+let _activeSource      = 'dexscreener';
+let _simulatedPrices   = {};
+let _onPriceUpdate     = null;
+let _pollTimer         = null;
+let _watcherTimer      = null;
+let _consecutiveFails  = 0;
+let _maxFails          = 5;
+let _backoffMs         = 5000;
+let _currentBnbPrice   = null;   // USD price of BNB
+let _lastSuccessfulFetch = 0;
 
 function setPriceUpdateCallback(fn) { _onPriceUpdate = fn; }
 
 // ============================================================
-//  MAIN FETCH LOOP
+//  BNB PRICE — necesario para convertir priceNative → USD
 // ============================================================
-async function fetchAllPrices() {
-  try {
-    if (_activeSource === 'gecko') {
-      const ok = await fetchViaGecko();
-      if (!ok) {
-        console.warn('[prices] GeckoTerminal failed → DexScreener');
-        _activeSource = 'dexscreener';
-        await fetchViaDexscreener();
-      } else {
-        enrichWithDexscreener().catch(() => {});
+async function fetchBnbPrice() {
+  for (const url of BNB_PRICE_APIS) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const pairs = data.pairs || (data.pair ? [data.pair] : []);
+      for (const pair of pairs) {
+        const p = parseFloat(pair.priceUsd || 0);
+        if (p > 100 && p < 10000) {   // BNB razonablemente entre $100-$10000
+          _currentBnbPrice = p;
+          return p;
+        }
       }
-    } else {
-      const ok = await fetchViaDexscreener();
-      if (!ok) {
-        _activeSource = 'gecko';
-        _consecutiveFails++;
-      } else {
-        _consecutiveFails = 0;
+    } catch {}
+  }
+  // Fallback: intentar GeckoTerminal para BNB
+  try {
+    const res = await fetch(
+      `${GECKO_API}/networks/bsc/tokens/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c`,
+      { headers: { 'Accept': 'application/json;version=20230302' } }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const attrs = data.data?.[0]?.attributes || {};
+      const p = parseFloat(attrs.price_usd || 0);
+      if (p > 100 && p < 10000) {
+        _currentBnbPrice = p;
+        return p;
       }
     }
+  } catch {}
+  return _currentBnbPrice; // usar último conocido
+}
+
+// ============================================================
+//  MAIN FETCH — obtiene precio correcto para cada token
+// ============================================================
+async function fetchAllPrices() {
+  // Actualizar precio de BNB en paralelo
+  fetchBnbPrice().catch(() => {});
+
+  let anyOk = false;
+
+  try {
+    // Intentar DexScreener primero
+    anyOk = await fetchViaDexscreener();
+
+    if (!anyOk) {
+      console.warn('[prices] DexScreener failed → GeckoTerminal');
+      _activeSource = 'gecko';
+      anyOk = await fetchViaGecko();
+    } else {
+      _activeSource = 'dexscreener';
+    }
   } catch (err) {
-    console.error('[prices] Unexpected error:', err);
-    markAllError();
+    console.error('[prices] fetchAllPrices error:', err);
+    markAllError('Error de conexión');
+  }
+
+  if (anyOk) {
+    _consecutiveFails  = 0;
+    _backoffMs         = 5000;
+    _lastSuccessfulFetch = Date.now();
+  } else {
+    _consecutiveFails++;
+    console.warn(`[prices] Fallo #${_consecutiveFails}`);
+    if (_consecutiveFails >= _maxFails) {
+      scheduleReconnect();
+    }
   }
 
   if (_onPriceUpdate) _onPriceUpdate();
 }
 
 // ============================================================
-//  SOURCE 1 — GeckoTerminal
+//  DEXSCREENER — FUENTE PRIMARIA
+//  Estrategia:
+//    1. Si el token tiene pairAddress guardado → fetch directo al par
+//    2. Si no → buscar por token address y seleccionar el par
+//       con mayor liquidez en BSC → guardar pairAddress
+//    3. Determinar si el token es base o quote del par
+//    4. Extraer priceNative (en BNB o vs quote token)
+// ============================================================
+async function fetchViaDexscreener() {
+  // Separar tokens con pairAddress conocido de los que necesitan descubrimiento
+  const tokensWithPair    = TOKENS.filter(t => t.pairAddress);
+  const tokensWithoutPair = TOKENS.filter(t => !t.pairAddress);
+
+  let anyOk = false;
+
+  // --- 1. Fetch tokens con pairAddress conocido ---
+  if (tokensWithPair.length > 0) {
+    const pairAddresses = tokensWithPair.map(t => t.pairAddress).join(',');
+    try {
+      const url = `${DEXSCREENER_PAIRS_API}${pairAddresses}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        const pairs = data.pairs || (data.pair ? [data.pair] : []);
+
+        tokensWithPair.forEach(token => {
+          const pair = pairs.find(p =>
+            p.pairAddress?.toLowerCase() === token.pairAddress?.toLowerCase()
+          );
+          if (pair) {
+            const ok = applyPairData(token, pair);
+            if (ok) anyOk = true;
+          } else {
+            // Par no encontrado — forzar redescubrimiento
+            token.pairAddress = null;
+            tokensWithoutPair.push(token);
+          }
+        });
+      }
+    } catch (err) {
+      console.warn('[prices] DexScreener pairs fetch error:', err.message);
+      // Mover todos a descubrimiento
+      tokensWithPair.forEach(t => {
+        t.pairAddress = null;
+        tokensWithoutPair.push(t);
+      });
+    }
+  }
+
+  // --- 2. Auto-descubrimiento para tokens sin pairAddress ---
+  if (tokensWithoutPair.length > 0) {
+    for (const token of tokensWithoutPair) {
+      try {
+        const url = `${DEXSCREENER_TOKEN_API}${token.address}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) {
+          markTokenError(token.address, `HTTP ${res.status}`);
+          continue;
+        }
+        const data = await res.json();
+        const pairs = (data.pairs || []).filter(p =>
+          p.chainId === 'bsc' && parseFloat(p.liquidity?.usd || 0) > 0
+        );
+
+        if (pairs.length === 0) {
+          markTokenError(token.address, 'Sin pares en BSC');
+          continue;
+        }
+
+        // Seleccionar par con mayor liquidez
+        const bestPair = pairs.reduce((best, p) =>
+          parseFloat(p.liquidity?.usd || 0) > parseFloat(best.liquidity?.usd || 0) ? p : best
+        );
+
+        // Guardar pairAddress para futuras llamadas
+        token.pairAddress = bestPair.pairAddress;
+        priceState[token.address].pairAddress = bestPair.pairAddress;
+
+        const ok = applyPairData(token, bestPair);
+        if (ok) anyOk = true;
+
+      } catch (err) {
+        console.warn(`[prices] Discovery error for ${contractTag(token.address)}:`, err.message);
+        markTokenError(token.address, 'Error de red');
+      }
+
+      // Pequeña pausa entre requests para no sobrecargar la API
+      await sleep(120);
+    }
+  }
+
+  return anyOk;
+}
+
+// ============================================================
+//  Aplica datos de un par al estado del token
+//  Retorna true si el precio es válido
+// ============================================================
+function applyPairData(token, pair) {
+  const state   = priceState[token.address];
+  const addr    = token.address.toLowerCase();
+
+  // Determinar si el token es baseToken o quoteToken
+  const isBase  = pair.baseToken?.address?.toLowerCase() === addr;
+  const isQuote = pair.quoteToken?.address?.toLowerCase() === addr;
+
+  if (!isBase && !isQuote) {
+    // Caso raro: el token no aparece en ningún lado del par
+    // Intentar con la primera posición
+    console.warn(`[prices] Token ${contractTag(token.address)} no encontrado en par, usando baseToken`);
+  }
+
+  // ── PRECIO ──
+  // DexScreener siempre da priceUsd del baseToken
+  // priceNative es el precio del baseToken en términos del quoteToken
+  let rawPriceUsd    = parseFloat(pair.priceUsd || 0);
+  let rawPriceNative = parseFloat(pair.priceNative || 0);
+
+  // Si el token es el quoteToken, invertir
+  if (isQuote && !isBase) {
+    // El precio del quoteToken en términos del baseToken
+    if (rawPriceNative > 0) {
+      rawPriceNative = 1 / rawPriceNative;
+    }
+    if (rawPriceUsd > 0) {
+      // Calcular USD del quoteToken a través del native price
+      const quoteSymbol = pair.quoteToken?.symbol?.toUpperCase() || '';
+      if (quoteSymbol === 'BNB' || quoteSymbol === 'WBNB') {
+        rawPriceUsd = rawPriceNative * (_currentBnbPrice || 0);
+      } else if (quoteSymbol === 'USDT' || quoteSymbol === 'USDC' || quoteSymbol === 'BUSD') {
+        rawPriceUsd = rawPriceNative;
+      } else {
+        rawPriceUsd = rawPriceNative * parseFloat(pair.priceUsd || 0);
+      }
+    }
+  }
+
+  // ── VALIDACIÓN DE PRECIO ──
+  // Rechazar precios claramente erróneos (NaN, negativos, infinitos)
+  if (!isFinite(rawPriceUsd)    || rawPriceUsd < 0)    rawPriceUsd = 0;
+  if (!isFinite(rawPriceNative) || rawPriceNative < 0) rawPriceNative = 0;
+
+  // Si tenemos priceNative pero no USD, calcular via BNB
+  const quoteTokenSymbol = (pair.quoteToken?.symbol || '').toUpperCase();
+  if (rawPriceUsd === 0 && rawPriceNative > 0) {
+    if (quoteTokenSymbol === 'BNB' || quoteTokenSymbol === 'WBNB') {
+      rawPriceUsd = rawPriceNative * (_currentBnbPrice || 0);
+    } else if (quoteTokenSymbol === 'USDT' || quoteTokenSymbol === 'USDC' || quoteTokenSymbol === 'BUSD') {
+      rawPriceUsd = rawPriceNative;
+    }
+  }
+
+  // Aplicar simulación si existe
+  const finalPriceUsd    = _simulatedPrices[token.address] !== undefined
+    ? _simulatedPrices[token.address]
+    : rawPriceUsd;
+
+  const finalPriceNative = _simulatedPrices[token.address] !== undefined
+    ? (_currentBnbPrice > 0 ? _simulatedPrices[token.address] / _currentBnbPrice : rawPriceNative)
+    : rawPriceNative;
+
+  // ── MÉTRICAS ──
+  const txns  = pair.txns?.h24 || {};
+  const buys  = parseInt(txns.buys  || 0);
+  const sells = parseInt(txns.sells || 0);
+
+  // ── ACTUALIZAR STATE ──
+  state.prevPrice         = state.price;
+  state.prevPriceNative   = state.priceNative;
+  state.price             = finalPriceUsd    > 0 ? finalPriceUsd    : null;
+  state.priceNative       = finalPriceNative > 0 ? finalPriceNative : null;
+  state.priceChange1h     = parseFloat(pair.priceChange?.h1  || 0);
+  state.priceChange       = parseFloat(pair.priceChange?.h24 || 0);
+  state.priceChange7d     = parseFloat(pair.priceChange?.h24 || 0); // DexScreener no da 7d siempre
+  state.volume24h         = parseFloat(pair.volume?.h24  || 0);
+  state.liquidity         = parseFloat(pair.liquidity?.usd || 0);
+  state.marketCap         = parseFloat(pair.marketCap || pair.fdv || 0) || null;
+  state.fdv               = parseFloat(pair.fdv || 0) || null;
+  state.buys24h           = buys   || null;
+  state.sells24h          = sells  || null;
+  state.txns24h           = (buys + sells) || null;
+  state.pairAddress       = pair.pairAddress || state.pairAddress;
+  state.pairCreatedAt     = pair.pairCreatedAt
+    ? (typeof pair.pairCreatedAt === 'number'
+        ? new Date(pair.pairCreatedAt).toISOString()
+        : pair.pairCreatedAt)
+    : null;
+  state.lastUpdated       = new Date();
+  state.error             = false;
+  state.errorMsg          = null;
+  state.loading           = false;
+  state.source            = 'dexscreener';
+  state.symbol            = token.symbol;
+  state.name              = token.name;
+  state.bnbPriceUsd       = _currentBnbPrice;
+
+  return state.price !== null || state.priceNative !== null;
+}
+
+// ============================================================
+//  GECKO TERMINAL — FALLBACK
 // ============================================================
 async function fetchViaGecko() {
   const addresses = TOKENS.map(t => t.address.toLowerCase()).join(',');
@@ -65,7 +329,7 @@ async function fetchViaGecko() {
       headers: { 'Accept': 'application/json;version=20230302' },
       cache:   'no-store',
     });
-    if (!res.ok) throw new Error(`gecko ${res.status}`);
+    if (!res.ok) throw new Error(`gecko HTTP ${res.status}`);
     const json = await res.json();
 
     const tokensData = json.data     || [];
@@ -84,13 +348,13 @@ async function fetchViaGecko() {
       const state = priceState[token.address];
 
       if (!tData) {
-        state.error   = true;
-        state.loading = false;
+        markTokenError(token.address, 'No encontrado en GeckoTerminal');
         return;
       }
 
       const attrs = tData.attributes || {};
 
+      // Seleccionar pool con mayor volumen 24h
       const rels = tData.relationships?.top_pools?.data || [];
       let bestPool = null, bestVol = -1;
       rels.forEach(ref => {
@@ -101,195 +365,89 @@ async function fetchViaGecko() {
         }
       });
 
-      const rawPrice   = parseFloat(attrs.price_usd || 0);
+      const rawPriceUsd = parseFloat(attrs.price_usd || 0);
+
+      // Intentar obtener precio en BNB desde el pool
+      let rawPriceNative = 0;
+      if (bestPool) {
+        const poolAttrs = bestPool.attributes || {};
+        // GeckoTerminal a veces da base_token_price_native_currency
+        rawPriceNative = parseFloat(poolAttrs.base_token_price_native_currency || 0);
+      }
+
       const finalPrice = _simulatedPrices[token.address] !== undefined
         ? _simulatedPrices[token.address]
-        : rawPrice;
+        : rawPriceUsd;
 
       const pca  = bestPool?.attributes?.pool_created_at || null;
       const txns = bestPool?.attributes?.transactions?.h24 || {};
       const buys  = parseInt(txns.buys  || 0);
       const sells = parseInt(txns.sells || 0);
 
-      state.prevPrice      = state.price;
-      state.price          = finalPrice || null;
-      state.priceChange1h  = parseFloat(attrs.price_change_percentage?.h1  || attrs.price_change_percentage?.m5 || 0);
-      state.priceChange    = parseFloat(attrs.price_change_percentage?.h24 || 0);
-      state.priceChange7d  = parseFloat(attrs.price_change_percentage?.d7  || attrs.price_change_percentage?.h24 || 0);
-      state.volume24h      = parseFloat(attrs.volume_usd?.h24 || bestVol || 0);
-      state.liquidity      = bestPool ? parseFloat(bestPool.attributes?.reserve_in_usd || 0) : null;
-      state.marketCap      = parseFloat(attrs.market_cap_usd || 0) || null;
-      state.fdv            = parseFloat(attrs.fdv_usd || 0) || null;
-      state.txns24h        = buys + sells || null;
-      state.buys24h        = buys   || null;
-      state.sells24h       = sells  || null;
-      state.pairCreatedAt  = pca;
-      state.lastUpdated    = new Date();
-      state.error          = false;
-      state.loading        = false;
-      state.source         = 'gecko';
-      // Preservar símbolo y nombre definidos en tokens.js (USDT.z)
-      state.symbol         = token.symbol;
-      state.name           = token.name;
+      state.prevPrice         = state.price;
+      state.price             = finalPrice > 0 ? finalPrice : null;
+      state.priceNative       = rawPriceNative > 0 ? rawPriceNative : null;
+      state.priceChange1h     = parseFloat(attrs.price_change_percentage?.h1  || 0);
+      state.priceChange       = parseFloat(attrs.price_change_percentage?.h24 || 0);
+      state.priceChange7d     = parseFloat(attrs.price_change_percentage?.d7  || state.priceChange || 0);
+      state.volume24h         = parseFloat(attrs.volume_usd?.h24 || bestVol || 0);
+      state.liquidity         = bestPool ? parseFloat(bestPool.attributes?.reserve_in_usd || 0) : null;
+      state.marketCap         = parseFloat(attrs.market_cap_usd || 0) || null;
+      state.fdv               = parseFloat(attrs.fdv_usd || 0) || null;
+      state.txns24h           = (buys + sells) || null;
+      state.buys24h           = buys   || null;
+      state.sells24h          = sells  || null;
+      state.pairCreatedAt     = pca;
+      state.lastUpdated       = new Date();
+      state.error             = false;
+      state.errorMsg          = null;
+      state.loading           = false;
+      state.source            = 'gecko';
+      state.symbol            = token.symbol;
+      state.name              = token.name;
 
-      if (rawPrice > 0) anyOk = true;
+      if (rawPriceUsd > 0) anyOk = true;
     });
 
     return anyOk;
 
   } catch (err) {
     console.warn('[prices] GeckoTerminal error:', err.message);
+    markAllError('GeckoTerminal no disponible');
     return false;
   }
 }
 
 // ============================================================
-//  SOURCE 2 — DexScreener
+//  WATCHER — reconexión automática con backoff
 // ============================================================
-async function fetchViaDexscreener() {
-  const addresses = TOKENS.map(t => t.address).join(',');
-  const url = CORS_PROXY + encodeURIComponent(DEXSCREENER_BASE + addresses);
-
-  try {
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`dexscreener ${res.status}`);
-    const data = await res.json();
-
-    if (!data.pairs || data.pairs.length === 0) {
-      markAllError();
-      return false;
-    }
-
-    const pairsByToken = {};
-    data.pairs.forEach(pair => {
-      [pair.baseToken?.address, pair.quoteToken?.address].forEach(a => {
-        if (!a) return;
-        const key = a.toLowerCase();
-        if (!pairsByToken[key]) pairsByToken[key] = [];
-        pairsByToken[key].push(pair);
-      });
-    });
-
-    TOKENS.forEach(t => {
-      const addr  = t.address.toLowerCase();
-      const pairs = pairsByToken[addr];
-      const state = priceState[t.address];
-
-      if (!pairs || pairs.length === 0) {
-        state.error   = true;
-        state.loading = false;
-        return;
-      }
-
-      const best = pairs.reduce((a, b) =>
-        (parseFloat(b.liquidity?.usd || 0) > parseFloat(a.liquidity?.usd || 0) ? b : a)
-      );
-
-      const isBase   = best.baseToken?.address?.toLowerCase() === addr;
-      const rawPrice = isBase
-        ? parseFloat(best.priceUsd || 0)
-        : (1 / parseFloat(best.priceUsd || 1));
-
-      const finalPrice = _simulatedPrices[t.address] !== undefined
-        ? _simulatedPrices[t.address]
-        : rawPrice;
-
-      const txns = best.txns?.h24 || {};
-
-      state.prevPrice      = state.price;
-      state.price          = finalPrice;
-      state.priceChange1h  = parseFloat(best.priceChange?.h1  || 0);
-      state.priceChange    = parseFloat(best.priceChange?.h24 || 0);
-      state.priceChange7d  = parseFloat(best.priceChange?.h24 || 0);
-      state.volume24h      = parseFloat(best.volume?.h24 || 0);
-      state.liquidity      = parseFloat(best.liquidity?.usd || 0);
-      state.marketCap      = parseFloat(best.marketCap || 0) || null;
-      state.fdv            = parseFloat(best.fdv || 0) || null;
-      state.buys24h        = parseInt(txns.buys  || 0) || null;
-      state.sells24h       = parseInt(txns.sells || 0) || null;
-      state.txns24h        = (state.buys24h || 0) + (state.sells24h || 0) || null;
-      state.pairCreatedAt  = best.pairCreatedAt ? new Date(best.pairCreatedAt).toISOString() : null;
-      state.lastUpdated    = new Date();
-      state.error          = false;
-      state.loading        = false;
-      state.source         = 'dexscreener';
-      // Preservar símbolo y nombre definidos en tokens.js (USDT.z)
-      state.symbol         = t.symbol;
-      state.name           = t.name;
-    });
-
-    return true;
-
-  } catch (err) {
-    console.warn('[prices] DexScreener error:', err.message);
-    markAllError();
-    return false;
-  }
-}
-
-// ============================================================
-//  ENRICHMENT — buy/sell data from DexScreener after Gecko
-// ============================================================
-async function enrichWithDexscreener() {
-  const addresses = TOKENS.map(t => t.address).join(',');
-  const url = CORS_PROXY + encodeURIComponent(DEXSCREENER_BASE + addresses);
-
-  try {
-    const res  = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data.pairs) return;
-
-    const pairsByToken = {};
-    data.pairs.forEach(pair => {
-      [pair.baseToken?.address, pair.quoteToken?.address].forEach(a => {
-        if (!a) return;
-        const key = a.toLowerCase();
-        if (!pairsByToken[key]) pairsByToken[key] = [];
-        pairsByToken[key].push(pair);
-      });
-    });
-
-    TOKENS.forEach(t => {
-      const addr  = t.address.toLowerCase();
-      const pairs = pairsByToken[addr];
-      const state = priceState[t.address];
-      if (!pairs || pairs.length === 0) return;
-
-      const best = pairs.reduce((a, b) =>
-        (parseFloat(b.liquidity?.usd || 0) > parseFloat(a.liquidity?.usd || 0) ? b : a)
-      );
-
-      const txns = best.txns?.h24 || {};
-      if (!state.buys24h  && txns.buys)  state.buys24h  = parseInt(txns.buys);
-      if (!state.sells24h && txns.sells) state.sells24h = parseInt(txns.sells);
-      if (!state.txns24h)                state.txns24h  = (state.buys24h || 0) + (state.sells24h || 0) || null;
-
-      if (!state.pairCreatedAt && best.pairCreatedAt)
-        state.pairCreatedAt = new Date(best.pairCreatedAt).toISOString();
-
-      if (state.volume24h && state.buys24h && state.sells24h) {
-        const total = state.buys24h + state.sells24h;
-        if (total > 0) {
-          state.buyVolume24h  = state.volume24h * (state.buys24h  / total);
-          state.sellVolume24h = state.volume24h * (state.sells24h / total);
-        }
-      }
-    });
-
-    if (_onPriceUpdate) _onPriceUpdate();
-  } catch {}
+function scheduleReconnect() {
+  console.warn(`[prices] ${_consecutiveFails} fallos consecutivos → reconectando en ${_backoffMs}ms`);
+  if (_watcherTimer) clearTimeout(_watcherTimer);
+  _watcherTimer = setTimeout(async () => {
+    console.log('[prices] Intentando reconexión...');
+    _consecutiveFails = 0;
+    await fetchAllPrices();
+    _backoffMs = Math.min(_backoffMs * 2, 120000); // max 2 min
+  }, _backoffMs);
 }
 
 // ============================================================
 //  HELPERS
 // ============================================================
-function markAllError() {
-  TOKENS.forEach(t => {
-    const s   = priceState[t.address];
-    s.error   = true;
-    s.loading = false;
-  });
+function markAllError(msg = 'Sin datos') {
+  TOKENS.forEach(t => markTokenError(t.address, msg));
+}
+
+function markTokenError(address, msg = 'Sin datos') {
+  const s   = priceState[address];
+  s.error   = true;
+  s.errorMsg = msg;
+  s.loading  = false;
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
 }
 
 function simulatePrice(address, price) {
@@ -315,6 +473,9 @@ function getActiveSource() {
   return _activeSource;
 }
 
+// ============================================================
+//  POLLING
+// ============================================================
 function startPolling(intervalMs) {
   stopPolling();
   fetchAllPrices();
@@ -322,10 +483,24 @@ function startPolling(intervalMs) {
 }
 
 function stopPolling() {
-  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  if (_pollTimer)   { clearInterval(_pollTimer);  _pollTimer   = null; }
+  if (_watcherTimer){ clearTimeout(_watcherTimer); _watcherTimer = null; }
 }
 
 function restartPolling(intervalMs) {
   stopPolling();
   startPolling(intervalMs);
 }
+
+// Exponemos para debug desde consola
+window._debugPrices = () => {
+  console.table(TOKENS.map(t => ({
+    tag:         contractTag(t.address),
+    pairAddress: t.pairAddress ? t.pairAddress.slice(-6) : 'N/A',
+    priceUSD:    priceState[t.address].price,
+    priceBNB:    priceState[t.address].priceNative,
+    source:      priceState[t.address].source,
+    error:       priceState[t.address].error,
+    errorMsg:    priceState[t.address].errorMsg,
+  })));
+};
