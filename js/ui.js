@@ -1,22 +1,21 @@
 // ============================================================
-//  ui.js — DOM rendering & UI updates
-//  Fixes:
-//    - Ticker infinito sin reinicio (JS-driven, no CSS animation)
-//    - Identificación por últimas 4 letras del contrato
-//    - Badge verificado en todos los tokens
-//    - Logo USDT para todos
-//    - Texto blanco/claro legible
-//    - Terminología de alertas (no exchange)
+//  ui.js — DOM rendering & UI updates v4.0
+//
+//  CAMBIOS:
+//    - Precio BNB como referencia principal en cada tarjeta
+//    - Precio USD como valor secundario
+//    - Panel desplegable con gráfica de DexScreener por tarjeta
+//    - "SIN DATOS" muestra mensaje descriptivo + retry
+//    - Ticker muestra precio BNB
 // ============================================================
 
 // ============================================================
 //  TICKER — Infinite seamless scroll via JS
 // ============================================================
-let _tickerRAF    = null;
-let _tickerX      = 0;
-let _tickerSpeed  = 0.6;   // px por frame
-let _tickerWidth  = 0;
-let _tickerReady  = false;
+let _tickerRAF   = null;
+let _tickerX     = 0;
+let _tickerSpeed = 0.6;
+let _tickerWidth = 0;
 
 function buildTickerHTML() {
   let items = '';
@@ -27,12 +26,16 @@ function buildTickerHTML() {
     const sgn  = ch >= 0 ? '+' : '';
     const tag  = contractTag(t.address);
     const sym  = (s && s.symbol) ? s.symbol : t.symbol;
-    const price = (s && s.price !== null) ? formatPrice(s.price) : '—';
+
+    // Mostrar precio BNB (primario) en el ticker
+    const priceBNB = (s && s.priceNative !== null) ? formatPriceBNB(s.priceNative) : '—';
+    const priceUSD = (s && s.price !== null)       ? formatPrice(s.price)           : '';
 
     items += `<span class="ticker-item">` +
       `<span class="name">${sym}</span>` +
       `<span class="ticker-tag">(${tag})</span>` +
-      `&nbsp;${price}&nbsp;` +
+      `&nbsp;<span class="ticker-bnb">${priceBNB}</span>&nbsp;` +
+      (priceUSD ? `<span class="ticker-usd">${priceUSD}</span>&nbsp;` : '') +
       `<span class="${cls}">${sgn}${ch.toFixed(2)}%</span>` +
       `</span>`;
   });
@@ -48,11 +51,8 @@ function updateTicker() {
   innerA.innerHTML = html;
   innerB.innerHTML = html;
 
-  // Medir ancho del bloque A para saber cuándo reiniciar
-  _tickerReady = false;
   requestAnimationFrame(() => {
     _tickerWidth = innerA.offsetWidth;
-    _tickerReady = true;
     if (!_tickerRAF) startTickerLoop();
   });
 }
@@ -63,12 +63,9 @@ function startTickerLoop() {
 
   function step() {
     _tickerX -= _tickerSpeed;
-
-    // Cuando A salió completamente, reseteamos al inicio
     if (_tickerWidth > 0 && Math.abs(_tickerX) >= _tickerWidth) {
       _tickerX = 0;
     }
-
     track.style.transform = `translateX(${_tickerX}px)`;
     _tickerRAF = requestAnimationFrame(step);
   }
@@ -101,11 +98,12 @@ function buildTokenCard(token, state) {
   card.id = 'card-' + token.address;
   card.style.setProperty('--card-accent', token.color || '#26a17b');
 
-  const price     = state.price;
-  const prevPrice = state.prevPrice;
-  const priceDir  = (prevPrice !== null && price !== null)
-    ? (price > prevPrice ? 'up' : price < prevPrice ? 'down' : '')
-    : '';
+  const tag         = contractTag(token.address);
+  const logoSrc     = state.logoUrl || USDT_LOGO_URL;
+  const tokenOrders = getOrders().filter(o =>
+    o.tokenAddress.toLowerCase() === token.address.toLowerCase() && !o.triggered
+  );
+  const isSimulated = isSimulating(token.address);
 
   const totalTxns    = (state.buys24h || 0) + (state.sells24h || 0);
   const buyPct       = totalTxns > 0 ? Math.round((state.buys24h / totalTxns) * 100) : 50;
@@ -114,19 +112,40 @@ function buildTokenCard(token, state) {
     ? 'var(--accent-green)'
     : buyPct < 40 ? 'var(--accent-red)' : 'var(--accent-gold)';
 
-  const c1h  = state.priceChange1h;
-  const c24h = state.priceChange;
-  const c7d  = state.priceChange7d;
+  // Dirección del precio
+  const priceDir = (state.prevPrice !== null && state.price !== null)
+    ? (state.price > state.prevPrice ? 'up' : state.price < state.prevPrice ? 'down' : '')
+    : '';
 
-  const tokenOrders = getOrders().filter(o =>
-    o.tokenAddress.toLowerCase() === token.address.toLowerCase() && !o.triggered
-  );
+  // Bloque de precio
+  let priceBlock = '';
+  if (state.loading) {
+    priceBlock = `<div class="price-bnb" id="price-bnb-${token.address}">···</div>
+                  <div class="price-usd" id="price-usd-${token.address}">···</div>`;
+  } else if (state.error || (state.price === null && state.priceNative === null)) {
+    priceBlock = `<div class="price-error" id="price-bnb-${token.address}">
+                    SIN DATOS
+                    <span class="error-hint">${state.errorMsg || 'Par no encontrado'}</span>
+                  </div>`;
+  } else {
+    priceBlock = `
+      <div class="price-bnb ${priceDir}" id="price-bnb-${token.address}">
+        ${formatPriceBNB(state.priceNative)}
+        ${isSimulated ? '<span class="sim-badge">[SIM]</span>' : ''}
+      </div>
+      <div class="price-usd" id="price-usd-${token.address}">
+        ${state.price !== null ? formatPrice(state.price) : ''}
+      </div>`;
+  }
 
-  const isSimulated = isSimulating(token.address);
-  const tag         = contractTag(token.address);
-  const logoSrc     = state.logoUrl || USDT_LOGO_URL;
+  // Gráfica URL de DexScreener (embed iframe)
+  const pairAddr = state.pairAddress || token.pairAddress;
+  const chartUrl = pairAddr
+    ? `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`
+    : `https://dexscreener.com/bsc/${token.address}?embed=1&theme=dark&info=0&trades=0`;
 
   card.innerHTML = `
+    <!-- TOP -->
     <div class="card-top">
       <div class="token-logo-wrap">
         <img class="token-logo"
@@ -145,26 +164,33 @@ function buildTokenCard(token, state) {
           : ''}
       </div>
 
-      <div class="token-address" onclick="copyAddress('${token.address}')" title="Copiar dirección completa">
-        <span class="contract-tag">${tag}</span> <span style="opacity:0.4">⎘</span>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <div class="token-address" onclick="copyAddress('${token.address}')" title="Copiar dirección">
+          <span class="contract-tag">${tag}</span>
+          <span style="opacity:0.4">⎘</span>
+        </div>
+        <!-- Botón para abrir gráfica -->
+        <button class="chart-toggle-btn" onclick="toggleChart('${token.address}')"
+                id="chart-btn-${token.address}" title="Ver gráfica en vivo">
+          <span class="chart-btn-icon">▾</span> CHART
+        </button>
       </div>
     </div>
 
+    <!-- PRECIO — BNB primario, USD secundario -->
     <div class="card-price">
-      <div class="price-value ${priceDir}" id="price-${token.address}">
-        ${state.error ? 'SIN DATOS' : (state.loading ? '···' : formatPrice(price))}
-        ${isSimulated ? '<span class="sim-badge">[SIM]</span>' : ''}
-      </div>
+      ${priceBlock}
       <div class="price-timeframes">
-        ${buildChangePill(c1h,  '1H')}
-        ${buildChangePill(c24h, '24H')}
-        ${buildChangePill(c7d,  '7D')}
+        ${buildChangePill(state.priceChange1h, '1H')}
+        ${buildChangePill(state.priceChange,   '24H')}
+        ${buildChangePill(state.priceChange7d, '7D')}
       </div>
     </div>
 
+    <!-- STATS -->
     <div class="card-stats">
       <div class="stat-item">
-        <div class="stat-label">VOLUMEN 24H</div>
+        <div class="stat-label">VOL 24H</div>
         <div class="stat-value">${formatNumber(state.volume24h)}</div>
       </div>
       <div class="stat-item">
@@ -172,7 +198,7 @@ function buildTokenCard(token, state) {
         <div class="stat-value">${formatNumber(state.liquidity)}</div>
       </div>
       <div class="stat-item">
-        <div class="stat-label">MARKET CAP</div>
+        <div class="stat-label">MKT CAP</div>
         <div class="stat-value">${formatNumber(state.marketCap)}</div>
       </div>
       <div class="stat-item">
@@ -189,21 +215,38 @@ function buildTokenCard(token, state) {
       </div>
     </div>
 
+    <!-- PRESIÓN COMPRA/VENTA -->
     ${totalTxns > 0 ? `
     <div class="pressure-section">
       <div class="pressure-labels">
-        <span class="pressure-buy">▲ ${formatCount(state.buys24h)} compras (${buyPct}%)</span>
-        <span class="pressure-sell">${sellPct}% (${formatCount(state.sells24h)} ventas) ▼</span>
+        <span class="pressure-buy">▲ ${formatCount(state.buys24h)} (${buyPct}%)</span>
+        <span class="pressure-sell">${sellPct}% (${formatCount(state.sells24h)}) ▼</span>
       </div>
       <div class="pressure-bar">
         <div class="pressure-fill" style="width:${buyPct}%; background:${pressureColor}"></div>
       </div>
     </div>` : ''}
 
+    <!-- ALERTAS ACTIVAS -->
     <div class="card-alerts">
       <div class="alerts-label">ALERTAS ACTIVAS</div>
       <div class="alerts-chips" id="chips-${token.address}">
         ${renderOrderChips(token.address, tokenOrders)}
+      </div>
+    </div>
+
+    <!-- GRÁFICA DESPLEGABLE -->
+    <div class="chart-panel" id="chart-${token.address}" style="display:none">
+      <div class="chart-panel-header">
+        <span class="chart-panel-title">GRÁFICA EN VIVO — ${state.symbol} (${tag})</span>
+        <a class="chart-ext-link"
+           href="https://dexscreener.com/bsc/${pairAddr || token.address}"
+           target="_blank" rel="noopener" title="Abrir en DexScreener">
+          ↗ ABRIR EN DEXSCREENER
+        </a>
+      </div>
+      <div class="chart-iframe-wrap" id="chart-iframe-wrap-${token.address}">
+        <!-- El iframe se inyecta cuando se abre para no cargar hasta que se necesite -->
       </div>
     </div>
   `;
@@ -211,6 +254,147 @@ function buildTokenCard(token, state) {
   return card;
 }
 
+// ============================================================
+//  TOGGLE GRÁFICA DESPLEGABLE
+// ============================================================
+const _chartLoaded = new Set();
+
+function toggleChart(address) {
+  const panel = document.getElementById('chart-' + address);
+  const btn   = document.getElementById('chart-btn-' + address);
+  if (!panel) return;
+
+  const isOpen = panel.style.display !== 'none';
+
+  if (isOpen) {
+    panel.style.display = 'none';
+    if (btn) btn.classList.remove('active');
+    if (btn) btn.querySelector('.chart-btn-icon').textContent = '▾';
+  } else {
+    panel.style.display = 'block';
+    if (btn) btn.classList.add('active');
+    if (btn) btn.querySelector('.chart-btn-icon').textContent = '▴';
+
+    // Cargar iframe solo la primera vez (lazy load)
+    if (!_chartLoaded.has(address)) {
+      _chartLoaded.add(address);
+      const wrap   = document.getElementById('chart-iframe-wrap-' + address);
+      const token  = getToken(address);
+      const state  = priceState[address];
+      const pairAddr = state?.pairAddress || token?.pairAddress;
+
+      const chartUrl = pairAddr
+        ? `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`
+        : `https://dexscreener.com/bsc/${address}?embed=1&theme=dark&info=0&trades=0`;
+
+      if (wrap) {
+        wrap.innerHTML = `<iframe
+          src="${chartUrl}"
+          class="chart-iframe"
+          frameborder="0"
+          allowfullscreen
+          loading="lazy"
+          title="Chart ${contractTag(address)}"
+        ></iframe>`;
+      }
+    }
+  }
+}
+
+// ============================================================
+//  ACTUALIZACIÓN LIVE DE PRECIO (sin re-render completo)
+// ============================================================
+function updateCardPrice(tokenAddress) {
+  const card  = document.getElementById('card-' + tokenAddress);
+  const state = priceState[tokenAddress];
+  if (!card || !state) return;
+
+  // Precio BNB (primario)
+  const priceBnbEl = document.getElementById('price-bnb-' + tokenAddress);
+  if (priceBnbEl) {
+    const priceDir = (state.prevPrice !== null && state.price !== null)
+      ? (state.price > state.prevPrice ? 'up' : state.price < state.prevPrice ? 'down' : '')
+      : '';
+
+    if (state.error || (state.price === null && state.priceNative === null)) {
+      priceBnbEl.className = 'price-error';
+      priceBnbEl.innerHTML = `SIN DATOS <span class="error-hint">${state.errorMsg || ''}</span>`;
+    } else {
+      const sim = isSimulating(tokenAddress) ? '<span class="sim-badge">[SIM]</span>' : '';
+      priceBnbEl.className = `price-bnb${priceDir ? ' ' + priceDir : ''}`;
+      priceBnbEl.innerHTML = formatPriceBNB(state.priceNative) + sim;
+    }
+  }
+
+  // Precio USD (secundario)
+  const priceUsdEl = document.getElementById('price-usd-' + tokenAddress);
+  if (priceUsdEl && !state.error) {
+    priceUsdEl.textContent = state.price !== null ? formatPrice(state.price) : '';
+  }
+
+  // Variaciones
+  const tfEl = card.querySelector('.price-timeframes');
+  if (tfEl) {
+    tfEl.innerHTML =
+      buildChangePill(state.priceChange1h, '1H')  +
+      buildChangePill(state.priceChange,   '24H') +
+      buildChangePill(state.priceChange7d, '7D');
+  }
+
+  // Stats
+  const sv   = card.querySelectorAll('.stat-value');
+  const activeAlerts = getOrders().filter(o =>
+    o.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() && !o.triggered
+  ).length;
+  const vals = [
+    formatNumber(state.volume24h),
+    formatNumber(state.liquidity),
+    formatNumber(state.marketCap),
+    formatNumber(state.fdv),
+    formatCount(state.txns24h),
+    activeAlerts,
+  ];
+  sv.forEach((el, i) => {
+    if (vals[i] !== undefined) {
+      el.textContent = vals[i];
+      if (i === 5) el.style.color = 'var(--accent-gold)';
+    }
+  });
+
+  // Barra de presión
+  const buyCount  = state.buys24h  || 0;
+  const sellCount = state.sells24h || 0;
+  const total     = buyCount + sellCount;
+  if (total > 0) {
+    const buyPct = Math.round(buyCount / total * 100);
+    const fillEl = card.querySelector('.pressure-fill');
+    if (fillEl) {
+      fillEl.style.width      = buyPct + '%';
+      fillEl.style.background = buyPct > 60
+        ? 'var(--accent-green)'
+        : buyPct < 40 ? 'var(--accent-red)' : 'var(--accent-gold)';
+    }
+    const labelsEl = card.querySelector('.pressure-labels');
+    if (labelsEl) {
+      labelsEl.innerHTML =
+        `<span class="pressure-buy">▲ ${formatCount(buyCount)} (${buyPct}%)</span>` +
+        `<span class="pressure-sell">${100 - buyPct}% (${formatCount(sellCount)}) ▼</span>`;
+    }
+  }
+
+  // Chips de alertas
+  const chipsEl = document.getElementById('chips-' + tokenAddress);
+  if (chipsEl) {
+    const orders = getOrders().filter(o =>
+      o.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() && !o.triggered
+    );
+    chipsEl.innerHTML = renderOrderChips(tokenAddress, orders);
+  }
+}
+
+// ============================================================
+//  HELPERS UI
+// ============================================================
 function buildChangePill(value, label) {
   if (value === null || value === undefined || isNaN(value)) {
     return `<span class="change-pill neutral"><span class="pill-label">${label}</span> —</span>`;
@@ -232,75 +416,8 @@ function renderOrderChips(address, orders) {
   `).join('');
 }
 
-// ---- Live price update (without full re-render) ----
-function updateCardPrice(tokenAddress) {
-  const card  = document.getElementById('card-' + tokenAddress);
-  const state = priceState[tokenAddress];
-  if (!card || !state) return;
-
-  const priceEl = document.getElementById('price-' + tokenAddress);
-  if (priceEl) {
-    const priceDir = (state.prevPrice !== null && state.price !== null)
-      ? (state.price > state.prevPrice ? 'up' : state.price < state.prevPrice ? 'down' : '')
-      : '';
-    const sim = isSimulating(tokenAddress) ? '<span class="sim-badge">[SIM]</span>' : '';
-    priceEl.innerHTML = (state.error ? 'SIN DATOS' : formatPrice(state.price)) + sim;
-    priceEl.className = 'price-value' + (priceDir ? ` ${priceDir}` : '');
-  }
-
-  const tfEl = card.querySelector('.price-timeframes');
-  if (tfEl) {
-    tfEl.innerHTML =
-      buildChangePill(state.priceChange1h, '1H')  +
-      buildChangePill(state.priceChange,   '24H') +
-      buildChangePill(state.priceChange7d, '7D');
-  }
-
-  const sv   = card.querySelectorAll('.stat-value');
-  const activeAlerts = getOrders().filter(o =>
-    o.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() && !o.triggered
-  ).length;
-  const vals = [
-    formatNumber(state.volume24h),
-    formatNumber(state.liquidity),
-    formatNumber(state.marketCap),
-    formatNumber(state.fdv),
-    formatCount(state.txns24h),
-    activeAlerts,
-  ];
-  sv.forEach((el, i) => { if (vals[i] !== undefined) el.textContent = vals[i]; });
-
-  const buyCount  = state.buys24h  || 0;
-  const sellCount = state.sells24h || 0;
-  const total     = buyCount + sellCount;
-  if (total > 0) {
-    const buyPct = Math.round(buyCount / total * 100);
-    const fillEl = card.querySelector('.pressure-fill');
-    if (fillEl) {
-      fillEl.style.width      = buyPct + '%';
-      fillEl.style.background = buyPct > 60
-        ? 'var(--accent-green)'
-        : buyPct < 40 ? 'var(--accent-red)' : 'var(--accent-gold)';
-    }
-    const labelsEl = card.querySelector('.pressure-labels');
-    if (labelsEl) {
-      labelsEl.innerHTML =
-        `<span class="pressure-buy">▲ ${formatCount(buyCount)} compras (${buyPct}%)</span>` +
-        `<span class="pressure-sell">${100 - buyPct}% (${formatCount(sellCount)} ventas) ▼</span>`;
-    }
-  }
-
-  const chipsEl = document.getElementById('chips-' + tokenAddress);
-  if (chipsEl) {
-    const orders = getOrders().filter(o =>
-      o.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() && !o.triggered
-    );
-    chipsEl.innerHTML = renderOrderChips(tokenAddress, orders);
-  }
-}
-
 // ============================================================
-//  ORDERS (Alertas de precio — sin terminología de exchange)
+//  ORDERS
 // ============================================================
 function renderOrders() {
   const container = document.getElementById('orders-list');
@@ -308,10 +425,7 @@ function renderOrders() {
   if (!container) return;
 
   const orders = getOrders();
-
-  Array.from(container.children).forEach(c => {
-    if (c.id !== 'orders-empty') c.remove();
-  });
+  Array.from(container.children).forEach(c => { if (c.id !== 'orders-empty') c.remove(); });
 
   if (orders.length === 0) {
     if (empty) empty.classList.remove('hidden');
@@ -326,12 +440,9 @@ function renderOrders() {
 
     const tag  = contractTag(order.tokenAddress);
     const sym  = order.tokenSymbol || 'USDT.z';
-
-    // Texto sin conceptos de exchange
     const condText = order.type === 'below'
       ? `Alertar si baja de <span class="price-target">${formatPrice(order.price)}</span>`
       : `Alertar si sube a <span class="price-target">${formatPrice(order.price)}</span>`;
-
     const created = new Date(order.createdAt).toLocaleString('es-AR', {
       dateStyle: 'short', timeStyle: 'short',
     });
@@ -357,7 +468,7 @@ function renderOrders() {
 }
 
 // ============================================================
-//  ALERT HISTORY
+//  HISTORY
 // ============================================================
 function renderHistory() {
   const container = document.getElementById('alert-history');
@@ -365,10 +476,7 @@ function renderHistory() {
   if (!container) return;
 
   const history = loadHistory();
-
-  Array.from(container.children).forEach(c => {
-    if (c.id !== 'history-empty') c.remove();
-  });
+  Array.from(container.children).forEach(c => { if (c.id !== 'history-empty') c.remove(); });
 
   if (history.length === 0) {
     if (empty) empty.classList.remove('hidden');
@@ -426,7 +534,7 @@ function setSourceBadge(source) {
 }
 
 // ============================================================
-//  POPULATE SELECTS
+//  SELECTS
 // ============================================================
 function populateTokenSelects() {
   ['order-token', 'test-token'].forEach(id => {
@@ -448,7 +556,7 @@ function populateSoundSelector() {
 }
 
 // ============================================================
-//  UTILITIES
+//  UTILS
 // ============================================================
 function copyAddress(addr) {
   navigator.clipboard?.writeText(addr)
@@ -472,12 +580,12 @@ function openOrderForm() {
 function closeOrderForm() {
   const c = document.getElementById('order-form-container');
   if (c) c.classList.add('hidden');
-  const price  = document.getElementById('order-price');
-  const note   = document.getElementById('order-note');
+  ['order-price', 'order-note'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
   const repeat = document.getElementById('order-repeat');
   const notify = document.getElementById('order-notify');
-  if (price)  price.value    = '';
-  if (note)   note.value     = '';
   if (repeat) repeat.checked = false;
   if (notify) notify.checked = true;
 }
