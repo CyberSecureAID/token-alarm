@@ -5,10 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TOKEN ALARM — Price Alert System</title>
 
-  <!-- ✅ FAVICON — SVG inline, no external dep -->
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307090d'/%3E%3Crect width='64' height='64' rx='14' fill='none' stroke='%23c9a84c' stroke-width='2' opacity='0.6'/%3E%3Ctext x='32' y='44' font-family='Georgia%2Cserif' font-size='32' font-weight='400' fill='%23c9a84c' text-anchor='middle'%3E%F0%9F%94%94%3C/text%3E%3C/svg%3E" />
-  <!-- Fallback PNG favicon via emoji favicon service -->
-  <link rel="alternate icon" href="https://fav.farm/%F0%9F%94%94" />
+  <!-- ✅ FAVICON — SVG rombo dorado, igual al logo -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2307090d'/%3E%3Cpolygon points='32,8 56,32 32,56 8,32' fill='none' stroke='%23c9a84c' stroke-width='3' opacity='0.9'/%3E%3Cpolygon points='32,16 48,32 32,48 16,32' fill='%23c9a84c' opacity='0.18'/%3E%3Cline x1='32' y1='8' x2='32' y2='56' stroke='%23c9a84c' stroke-width='0.8' opacity='0.3'/%3E%3Cline x1='8' y1='32' x2='56' y2='32' stroke='%23c9a84c' stroke-width='0.8' opacity='0.3'/%3E%3C/svg%3E" />
 
   <link rel="stylesheet" href="css/style.css" />
 </head>
@@ -16,12 +14,10 @@
 
   <!-- ══════════════════════════════════════════
        AUDIO UNLOCK OVERLAY
-       Shown on first load. Click → initAudio()
-       → hide overlay → boot app.
   ══════════════════════════════════════════ -->
   <div id="audio-unlock-overlay" class="audio-unlock">
     <div class="unlock-box">
-      <div class="unlock-icon">🔔</div>
+      <div class="unlock-icon">◈</div>
       <h2>TOKEN ALARM</h2>
       <p>Click para activar el sistema de alertas de audio</p>
       <button id="unlock-btn" class="btn-primary">ACTIVAR SISTEMA</button>
@@ -64,9 +60,12 @@
       </div>
     </div>
 
-    <!-- Price ticker -->
+    <!-- Price ticker — seamless infinite loop -->
     <div class="header-ticker" id="header-ticker">
-      <div class="ticker-inner" id="ticker-inner">Cargando precios…</div>
+      <div class="ticker-track" id="ticker-track">
+        <div class="ticker-inner" id="ticker-inner-a">Cargando precios…</div>
+        <div class="ticker-inner" id="ticker-inner-b" aria-hidden="true"></div>
+      </div>
     </div>
   </header>
 
@@ -86,17 +85,17 @@
       </div>
     </section>
 
-    <!-- LIMIT ORDERS -->
+    <!-- PRICE ALERTS -->
     <section class="section-orders">
       <div class="section-header">
-        <h2 class="section-title">ÓRDENES LIMIT</h2>
-        <button class="btn-add" id="add-order-btn">+ NUEVA ORDEN</button>
+        <h2 class="section-title">ALERTAS DE PRECIO</h2>
+        <button class="btn-add" id="add-order-btn">+ NUEVA ALERTA</button>
       </div>
 
-      <!-- Add Order Form -->
+      <!-- Add Alert Form -->
       <div class="order-form-container hidden" id="order-form-container">
         <div class="order-form" id="order-form">
-          <h3 class="form-title">NUEVA ORDEN LIMIT</h3>
+          <h3 class="form-title">NUEVA ALERTA DE PRECIO</h3>
           <div class="form-grid">
             <div class="form-group">
               <label>TOKEN</label>
@@ -105,21 +104,21 @@
               </select>
             </div>
             <div class="form-group">
-              <label>TIPO</label>
+              <label>CONDICIÓN</label>
               <select id="order-type" class="form-control">
-                <option value="below">BAJAR DE (SELL / STOP LOSS)</option>
-                <option value="above">SUBIR A (BUY / TAKE PROFIT)</option>
+                <option value="below">ALERTAR SI BAJA DE…</option>
+                <option value="above">ALERTAR SI SUBE A…</option>
               </select>
             </div>
             <div class="form-group">
-              <label>PRECIO TARGET (USD)</label>
+              <label>PRECIO OBJETIVO (USD)</label>
               <input type="number" id="order-price" class="form-control"
                      placeholder="0.00000000" step="any" min="0" />
             </div>
             <div class="form-group">
               <label>NOTA (opcional)</label>
               <input type="text" id="order-note" class="form-control"
-                     placeholder="ej: Stop loss principal" maxlength="60" />
+                     placeholder="ej: Nivel de soporte clave" maxlength="60" />
             </div>
           </div>
           <div class="form-row">
@@ -138,7 +137,7 @@
           </div>
           <div class="form-actions">
             <button class="btn-secondary" id="cancel-order-btn">CANCELAR</button>
-            <button class="btn-primary"   id="save-order-btn">GUARDAR ORDEN</button>
+            <button class="btn-primary"   id="save-order-btn">GUARDAR ALERTA</button>
           </div>
         </div>
       </div>
@@ -147,7 +146,7 @@
       <div id="orders-list" class="orders-list">
         <div class="empty-state" id="orders-empty">
           <div class="empty-icon">📋</div>
-          <p>Sin órdenes activas.<br/>Crea una orden limit para comenzar.</p>
+          <p>Sin alertas activas.<br/>Crea una alerta de precio para comenzar.</p>
         </div>
       </div>
     </section>
@@ -208,7 +207,7 @@
       <div class="setting-group">
         <label>SONIDO DE ALERTA</label>
         <select id="alert-sound" class="form-control">
-          <!-- populated dynamically by ui.js / app.js -->
+          <!-- populated dynamically -->
         </select>
         <button class="btn-text" id="test-sound-btn" style="margin-top:6px">▶ PROBAR</button>
       </div>
