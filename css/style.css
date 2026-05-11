@@ -1,12 +1,10 @@
 /* ============================================
-   TOKEN ALARM — STYLE SYSTEM v4.1
+   TOKEN ALARM — STYLE SYSTEM v4.2
    Aesthetic: Executive night — refined dark finance
    Font: Cormorant Garamond + JetBrains Mono + Outfit
-   Changes v4.1:
-     - price-main  (USD) = PRINCIPAL grande
-     - price-secondary (BNB) = secundario pequeño
-     - Chart iframe precargado oculto
-     - Branding overlay Token Alarm sobre DexScreener
+   Changes v4.2:
+     - Parpadeo precio carga: blanco ↔ verde USDT (#26a17b)
+       via @keyframes shimmerGreen (reemplaza shimmer gris)
    ============================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600&display=swap');
@@ -186,10 +184,8 @@ body {
 .ticker-item   { color: var(--text-secondary); letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 5px; }
 .ticker-item .name      { color: var(--text-primary); font-weight: 500; }
 .ticker-item .ticker-tag    { color: var(--text-muted); font-size: 10px; }
-/* Ticker v4.1: USD principal, BNB secundario */
 .ticker-item .ticker-usd-main { color: var(--text-primary); font-weight: 500; }
 .ticker-item .ticker-bnb-sec  { color: var(--text-muted); font-size: 10px; }
-/* Compatibilidad con clases antiguas */
 .ticker-item .ticker-bnb { color: var(--accent-bnb); font-weight: 500; }
 .ticker-item .ticker-usd { color: var(--text-muted); font-size: 10px; }
 .ticker-item .up   { color: var(--accent-green); }
@@ -292,7 +288,7 @@ main { max-width: 1300px; margin: 0 auto; padding: 40px 32px 80px; display: flex
 .chart-btn-icon { font-size: 10px; }
 
 /* ══════════════════════════════════════════════════════
-   BLOQUE DE PRECIO v4.1
+   BLOQUE DE PRECIO v4.2
    price-main      = USD  → GRANDE, color primario
    price-secondary = BNB  → PEQUEÑO, color secundario
    ══════════════════════════════════════════════════════ */
@@ -341,8 +337,11 @@ main { max-width: 1300px; margin: 0 auto; padding: 40px 32px 80px; display: flex
   letter-spacing: 0.5px; font-style: italic;
 }
 
-/* Carga shimmer */
-.card-loading .price-main { color: var(--text-muted); animation: shimmer 2s infinite; }
+/* ── CARGA: parpadeo blanco ↔ verde USDT (#26a17b) ── */
+.card-loading .price-main {
+  color: var(--text-primary);
+  animation: shimmerGreen 1.8s ease-in-out infinite;
+}
 
 .sim-badge { font-size: 10px; letter-spacing: 1px; color: var(--accent-gold); font-weight: 400; }
 
@@ -416,7 +415,6 @@ main { max-width: 1300px; margin: 0 auto; padding: 40px 32px 80px; display: flex
 }
 .chart-ext-link:hover { opacity: 1; }
 
-/* Contenedor del iframe — posición relativa para el overlay */
 .chart-iframe-wrap {
   position: relative;
   width: 100%;
@@ -432,7 +430,6 @@ main { max-width: 1300px; margin: 0 auto; padding: 40px 32px 80px; display: flex
   display: block;
 }
 
-/* Estado de carga (mientras el iframe no carga) */
 .chart-iframe-wrap::before {
   content: 'CARGANDO GRÁFICA…';
   position: absolute; inset: 0;
@@ -446,7 +443,6 @@ main { max-width: 1300px; margin: 0 auto; padding: 40px 32px 80px; display: flex
   position: relative; z-index: 1;
 }
 
-/* ── OVERLAY BRANDING: cubre el footer de DexScreener ── */
 .chart-brand-overlay {
   position: absolute;
   bottom: 0; left: 0; right: 0;
@@ -604,6 +600,12 @@ main { max-width: 1300px; margin: 0 auto; padding: 40px 32px 80px; display: flex
 @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @keyframes cardPulse  { 0% { transform: scale(1); } 50% { transform: scale(1.008); } 100% { transform: scale(1); } }
 @keyframes shimmer    { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* ── PARPADEO PRECIO: blanco (#f0f4ff) ↔ verde USDT (#26a17b) ── */
+@keyframes shimmerGreen {
+  0%, 100% { color: #f0f4ff; }
+  50%       { color: #26a17b; }
+}
 
 /* === RESPONSIVE === */
 @media (max-width: 860px) {
