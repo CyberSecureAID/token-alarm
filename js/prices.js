@@ -2,15 +2,17 @@
 //  prices.js — Multi-source price & data fetching
 //
 //  Sources (no API key required):
-//    1. GeckoTerminal  — price, volume, liquidity, mktcap, 1h/24h/7d Δ, txns, pool age
-//    2. DexScreener    — buys/sells pressure, pair data, fallback price
+//    1. GeckoTerminal  — price, volume, liquidity, mktcap,
+//                        1h/24h/7d Δ, txns, pool age
+//    2. DexScreener    — buys/sells pressure, pair data,
+//                        fallback price
 //
 //  CORS-safe on GitHub Pages via corsproxy.io for DexScreener
 // ============================================================
 
-const GECKO_API         = 'https://api.geckoterminal.com/api/v2';
-const DEXSCREENER_BASE  = 'https://api.dexscreener.com/latest/dex/tokens/';
-const CORS_PROXY        = 'https://corsproxy.io/?url=';
+const GECKO_API        = 'https://api.geckoterminal.com/api/v2';
+const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex/tokens/';
+const CORS_PROXY       = 'https://corsproxy.io/?url=';
 
 let _activeSource     = 'gecko';
 let _simulatedPrices  = {};
@@ -54,15 +56,13 @@ async function fetchAllPrices() {
 
 // ============================================================
 //  SOURCE 1 — GeckoTerminal
-//  Returns: price, 1h/24h/7d Δ, volume, mktcap, fdv,
-//           liquidity, txns 24h, pool created_at
 // ============================================================
 async function fetchViaGecko() {
   const addresses = TOKENS.map(t => t.address.toLowerCase()).join(',');
   const url = `${GECKO_API}/networks/bsc/tokens/multi/${addresses}?include=top_pools`;
 
   try {
-    const res  = await fetch(url, {
+    const res = await fetch(url, {
       headers: { 'Accept': 'application/json;version=20230302' },
       cache:   'no-store',
     });
@@ -108,15 +108,10 @@ async function fetchViaGecko() {
         ? _simulatedPrices[token.address]
         : rawPrice;
 
-      const pca = bestPool?.attributes?.pool_created_at || null;
-
-      // Transactions from pool
-      const txns   = bestPool?.attributes?.transactions?.h24 || {};
-      const buys   = parseInt(txns.buys   || 0);
-      const sells  = parseInt(txns.sells  || 0);
-
-      // Volume breakdown
-      const volAttrs = bestPool?.attributes?.volume_usd || {};
+      const pca  = bestPool?.attributes?.pool_created_at || null;
+      const txns = bestPool?.attributes?.transactions?.h24 || {};
+      const buys  = parseInt(txns.buys  || 0);
+      const sells = parseInt(txns.sells || 0);
 
       state.prevPrice      = state.price;
       state.price          = finalPrice || null;
@@ -153,9 +148,7 @@ async function fetchViaGecko() {
 }
 
 // ============================================================
-//  SOURCE 2 — DexScreener (primary fallback + buy/sell enrichment)
-//  Returns: price, 24h Δ (m5/h1/h6/h24), buys, sells,
-//           volume, liquidity, mktcap, pool age
+//  SOURCE 2 — DexScreener
 // ============================================================
 async function fetchViaDexscreener() {
   const addresses = TOKENS.map(t => t.address).join(',');
@@ -171,7 +164,6 @@ async function fetchViaDexscreener() {
       return false;
     }
 
-    // Map pairs by token address
     const pairsByToken = {};
     data.pairs.forEach(pair => {
       [pair.baseToken?.address, pair.quoteToken?.address].forEach(a => {
@@ -193,7 +185,6 @@ async function fetchViaDexscreener() {
         return;
       }
 
-      // Best pair = highest liquidity
       const best = pairs.reduce((a, b) =>
         (parseFloat(b.liquidity?.usd || 0) > parseFloat(a.liquidity?.usd || 0) ? b : a)
       );
@@ -213,7 +204,7 @@ async function fetchViaDexscreener() {
       state.price          = finalPrice;
       state.priceChange1h  = parseFloat(best.priceChange?.h1  || 0);
       state.priceChange    = parseFloat(best.priceChange?.h24 || 0);
-      state.priceChange7d  = parseFloat(best.priceChange?.h24 || 0); // DexScreener has no 7d, reuse
+      state.priceChange7d  = parseFloat(best.priceChange?.h24 || 0);
       state.volume24h      = parseFloat(best.volume?.h24 || 0);
       state.liquidity      = parseFloat(best.liquidity?.usd || 0);
       state.marketCap      = parseFloat(best.marketCap || 0) || null;
@@ -243,8 +234,7 @@ async function fetchViaDexscreener() {
 }
 
 // ============================================================
-//  ENRICHMENT — called after Gecko fetch to fill buy/sell data
-//  from DexScreener (Gecko doesn't always have txn breakdown)
+//  ENRICHMENT — buy/sell data from DexScreener after Gecko
 // ============================================================
 async function enrichWithDexscreener() {
   const addresses = TOKENS.map(t => t.address).join(',');
@@ -277,13 +267,13 @@ async function enrichWithDexscreener() {
       );
 
       const txns = best.txns?.h24 || {};
-      if (!state.buys24h && txns.buys)   state.buys24h  = parseInt(txns.buys);
+      if (!state.buys24h  && txns.buys)  state.buys24h  = parseInt(txns.buys);
       if (!state.sells24h && txns.sells) state.sells24h = parseInt(txns.sells);
       if (!state.txns24h)                state.txns24h  = (state.buys24h || 0) + (state.sells24h || 0) || null;
+
       if (!state.pairCreatedAt && best.pairCreatedAt)
         state.pairCreatedAt = new Date(best.pairCreatedAt).toISOString();
 
-      // Volume breakdown (buy vol ≈ total * buys/(buys+sells))
       if (state.volume24h && state.buys24h && state.sells24h) {
         const total = state.buys24h + state.sells24h;
         if (total > 0) {
@@ -302,7 +292,7 @@ async function enrichWithDexscreener() {
 // ============================================================
 function markAllError() {
   TOKENS.forEach(t => {
-    const s = priceState[t.address];
+    const s   = priceState[t.address];
     s.error   = true;
     s.loading = false;
   });
@@ -324,7 +314,6 @@ function isSimulating(address) {
 }
 
 function getActiveSource() {
-  // Return actual source from first non-errored token
   for (const t of TOKENS) {
     const s = priceState[t.address];
     if (s.source) return s.source;
