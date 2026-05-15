@@ -179,7 +179,7 @@ async function fetchViaDexscreener() {
 
         if (!res.ok) {
           console.warn(`[prices] DexScreener v1 HTTP ${res.status} para ${contractTag(token.address)}`);
-          markTokenError(token.address, `HTTP ${res.status}`);
+          // No marcar como error inmediatamente, dejar que GeckoTerminal intente
           continue;
         }
 
@@ -190,8 +190,8 @@ async function fetchViaDexscreener() {
         const pairs = Array.isArray(data) ? data : (data.pairs || []);
 
         if (pairs.length === 0) {
-          console.warn(`[prices] Sin pares para ${contractTag(token.address)} en endpoint v1`);
-          markTokenError(token.address, 'Sin pares disponibles');
+          console.warn(`[prices] Sin pares para ${contractTag(token.address)} en endpoint v1 - intentando GeckoTerminal`);
+          // No marcar como error todavía, dejar que GeckoTerminal intente
           continue;
         }
 
@@ -216,7 +216,7 @@ async function fetchViaDexscreener() {
 
       } catch (err) {
         console.warn(`[prices] Discovery error para ${contractTag(token.address)}:`, err.message);
-        markTokenError(token.address, 'Error de red');
+        // No marcar como error inmediatamente, dejar que GeckoTerminal intente
       }
 
       await sleep(120);
@@ -384,7 +384,7 @@ async function fetchViaGecko() {
     const state = priceState[token.address];
 
     if (!tData) {
-      markTokenError(token.address, 'No encontrado en GeckoTerminal');
+      // Solo marcar error si no tiene precio de ninguna fuente
       continue;
     }
 
