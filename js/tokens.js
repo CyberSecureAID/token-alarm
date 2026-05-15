@@ -70,41 +70,6 @@ const TOKENS = [
     verified:    true,
     logoOverride: null,
   },
-  {
-    // TKN4 — últimas 4: 0877 — logo custom embebido
-    address:     '0xca1df182e5f9d59149057e15a98f95e3de9e0877',
-    symbol:      'USDT.z',
-    name:        'Tether USD Bridged ZET20',
-    chain:       'bsc',
-    color:       '#26a17b',
-    pairAddress: null,
-    isBaseToken: true,
-    verified:    true,
-    logoOverride: LOGO_0877_URL,
-  },
-  {
-    address:     '0xa80A8cba9b40AC5dA81E84578a75c6ddA94C4444',
-    symbol:      'USDT.z',
-    name:        'Tether USD Bridged ZET20',
-    chain:       'bsc',
-    color:       '#26a17b',
-    pairAddress: null,
-    isBaseToken: true,
-    verified:    true,
-    logoOverride: null,
-  },
-  {
-    address:     '0x7D19a02e543Ff0E88AB717b886cf8e76a19F76c3',
-    symbol:      'USDT.z',
-    name:        'Tether USD Bridged ZET20',
-    chain:       'bsc',
-    color:       '#26a17b',
-    pairAddress: null,
-    isBaseToken: true,
-    verified:    true,
-    logoOverride: null,
-  },
-];
 
 // ============================================================
 //  PRICE STATE
