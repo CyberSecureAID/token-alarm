@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TOKEN ALARM — Price Alert System</title>
 
-  <!-- ✅ FAVICON — SVG rombo dorado, igual al logo -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2307090d'/%3E%3Cpolygon points='32,8 56,32 32,56 8,32' fill='none' stroke='%23c9a84c' stroke-width='3' opacity='0.9'/%3E%3Cpolygon points='32,16 48,32 32,48 16,32' fill='%23c9a84c' opacity='0.18'/%3E%3Cline x1='32' y1='8' x2='32' y2='56' stroke='%23c9a84c' stroke-width='0.8' opacity='0.3'/%3E%3Cline x1='8' y1='32' x2='56' y2='32' stroke='%23c9a84c' stroke-width='0.8' opacity='0.3'/%3E%3C/svg%3E" />
 
   <link rel="stylesheet" href="css/style.css" />
@@ -13,9 +12,7 @@
 </head>
 <body>
 
-  <!-- ══════════════════════════════════════════
-       AUDIO UNLOCK OVERLAY
-  ══════════════════════════════════════════ -->
+  <!-- AUDIO UNLOCK OVERLAY -->
   <div id="audio-unlock-overlay" class="audio-unlock">
     <div class="unlock-box">
       <div class="unlock-icon">◈</div>
@@ -25,9 +22,7 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════
-       ALERT TOAST
-  ══════════════════════════════════════════ -->
+  <!-- ALERT TOAST -->
   <div id="alert-toast" class="alert-toast hidden">
     <div class="toast-icon">⚡</div>
     <div class="toast-body">
@@ -37,9 +32,52 @@
     <button class="toast-close" onclick="closeToast()">✕</button>
   </div>
 
-  <!-- ══════════════════════════════════════════
-       HEADER
-  ══════════════════════════════════════════ -->
+  <!-- ADD TOKEN MODAL -->
+  <div id="add-token-modal" class="add-token-modal-overlay hidden">
+    <div class="add-token-modal-box">
+      <div class="add-token-modal-header">
+        <span style="font-family:var(--font-display);font-size:22px;letter-spacing:5px;color:var(--text-secondary)">AGREGAR CONTRATO</span>
+        <button class="icon-btn" onclick="closeAddTokenModal()">✕</button>
+      </div>
+      <div class="add-token-modal-body">
+        <div class="form-group">
+          <label>DIRECCIÓN DEL CONTRATO (BSC)</label>
+          <input id="at-address" class="form-control"
+                 placeholder="0x..." maxlength="42" autocomplete="off"
+                 style="font-family:var(--font-mono);letter-spacing:0.5px"
+          />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="form-group">
+            <label>SÍMBOLO (ej: BNB)</label>
+            <input id="at-symbol" class="form-control" placeholder="TOKEN" maxlength="12" />
+          </div>
+          <div class="form-group">
+            <label>NOMBRE (opcional)</label>
+            <input id="at-name" class="form-control" placeholder="Mi Token" maxlength="48" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>COLOR DE ACENTO</label>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input id="at-color" type="color" value="#c9a84c"
+                   style="width:42px;height:34px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-input);cursor:pointer"
+            />
+            <div class="at-presets" id="at-presets">
+              <!-- populated by JS -->
+            </div>
+          </div>
+        </div>
+        <div id="at-error" style="color:var(--accent-red);font-family:var(--font-mono);font-size:11px;min-height:18px"></div>
+        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:4px">
+          <button class="btn-secondary" onclick="closeAddTokenModal()">CANCELAR</button>
+          <button class="btn-primary"   onclick="submitAddToken()">AGREGAR TOKEN</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HEADER -->
   <header class="site-header">
     <div class="header-inner">
       <div class="logo">
@@ -61,7 +99,6 @@
       </div>
     </div>
 
-    <!-- Price ticker — seamless infinite loop -->
     <div class="header-ticker" id="header-ticker">
       <div class="ticker-track" id="ticker-track">
         <div class="ticker-inner" id="ticker-inner-a">Cargando precios…</div>
@@ -70,9 +107,7 @@
     </div>
   </header>
 
-  <!-- ══════════════════════════════════════════
-       MAIN
-  ══════════════════════════════════════════ -->
+  <!-- MAIN -->
   <main>
 
     <!-- TOKENS GRID -->
@@ -80,13 +115,11 @@
       <div class="section-header">
         <h2 class="section-title">TOKENS MONITOREADOS</h2>
         <div style="display:flex;gap:10px;align-items:center">
-          <span class="section-count" id="tokens-count">3 tokens</span>
-          <button class="btn-add-contract" onclick="openAddTokenModal()">＋ CONTRATO</button>
+          <span class="section-count" id="tokens-count">0 tokens</span>
+          <button class="btn-add-contract" id="add-contract-btn" onclick="openAddTokenModal()">＋ CONTRATO</button>
         </div>
       </div>
-      <div class="tokens-grid" id="tokens-grid">
-        <!-- Token cards injected by JS -->
-      </div>
+      <div class="tokens-grid" id="tokens-grid"></div>
     </section>
 
     <!-- PRICE ALERTS -->
@@ -96,16 +129,13 @@
         <button class="btn-add" id="add-order-btn">+ NUEVA ALERTA</button>
       </div>
 
-      <!-- Add Alert Form -->
       <div class="order-form-container hidden" id="order-form-container">
         <div class="order-form" id="order-form">
           <h3 class="form-title">NUEVA ALERTA DE PRECIO</h3>
           <div class="form-grid">
             <div class="form-group">
               <label>TOKEN</label>
-              <select id="order-token" class="form-control">
-                <!-- populated by JS -->
-              </select>
+              <select id="order-token" class="form-control"></select>
             </div>
             <div class="form-group">
               <label>CONDICIÓN</label>
@@ -146,7 +176,6 @@
         </div>
       </div>
 
-      <!-- Orders list -->
       <div id="orders-list" class="orders-list">
         <div class="empty-state" id="orders-empty">
           <div class="empty-icon">📋</div>
@@ -171,9 +200,7 @@
 
   </main>
 
-  <!-- ══════════════════════════════════════════
-       SETTINGS PANEL
-  ══════════════════════════════════════════ -->
+  <!-- SETTINGS PANEL -->
   <aside class="settings-panel hidden" id="settings-panel">
     <div class="panel-header">
       <h3>CONFIGURACIÓN</h3>
@@ -210,9 +237,7 @@
 
       <div class="setting-group">
         <label>SONIDO DE ALERTA</label>
-        <select id="alert-sound" class="form-control">
-          <!-- populated dynamically -->
-        </select>
+        <select id="alert-sound" class="form-control"></select>
         <button class="btn-text" id="test-sound-btn" style="margin-top:6px">▶ PROBAR</button>
       </div>
 
@@ -232,9 +257,7 @@
           Los precios reales se restauran a los 15 segundos.
         </p>
         <div class="test-controls">
-          <select id="test-token" class="form-control">
-            <!-- populated by JS -->
-          </select>
+          <select id="test-token" class="form-control"></select>
           <select id="test-direction" class="form-control">
             <option value="crash">📉 Caída brusca (−30%)</option>
             <option value="pump">📈 Pump fuerte (+40%)</option>
@@ -255,12 +278,9 @@
     </div>
   </aside>
 
-  <!-- Settings overlay backdrop -->
   <div class="overlay hidden" id="overlay" onclick="closeSettings(); _settingsOpen = false;"></div>
 
-  <!-- ══════════════════════════════════════════
-       SCRIPTS — order matters!
-  ══════════════════════════════════════════ -->
+  <!-- SCRIPTS -->
   <script src="js/tokens.js"></script>
   <script src="js/prices.js"></script>
   <script src="js/orders.js"></script>
