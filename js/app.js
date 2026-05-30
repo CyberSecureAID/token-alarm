@@ -1,49 +1,64 @@
 // ============================================================
-//  app.js — Main controller v4.0
-//  Changes:
-//    - Watcher continuo con detección de precios estancados
-//    - Alerta evaluada vs precio BNB (priceNative) cuando aplica
-//    - Boot más robusto
+//  app.js — Main controller v4.1-fix
+//  Fix: handleUnlock blindado con try/catch; log de errores
+//       visible en consola para diagnóstico.
 // ============================================================
 
 let _pollInterval    = 30000;
 let _soundMuted      = false;
 let _settingsOpen    = false;
-let _stalePriceTimer = null;   // detectar precios sin actualizar
+let _stalePriceTimer = null;
 
 // ============================================================
 //  BOOT
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
-  renderTokenCards();
-  renderOrders();
-  renderHistory();
-  populateTokenSelects();
-  populateSoundSelector();
-  loadSettings();
-  bindEvents();
-  setStatus('loading', 'INICIALIZANDO');
+  try {
+    renderTokenCards();
+    renderOrders();
+    renderHistory();
+    populateTokenSelects();
+    populateSoundSelector();
+    loadSettings();
+    bindEvents();
+    setStatus('loading', 'INICIALIZANDO');
+  } catch (e) {
+    console.error('[boot] Error en DOMContentLoaded:', e);
+  }
 });
 
 // ============================================================
-//  AUDIO UNLOCK
+//  AUDIO UNLOCK  — blindado
 // ============================================================
 function handleUnlock() {
-  initAudio();
-
-  if ('Notification' in window && Notification.permission === 'default') {
-    Notification.requestPermission().catch(() => {});
+  try {
+    initAudio();
+  } catch (e) {
+    console.warn('[unlock] initAudio error:', e);
   }
 
-  const overlay = document.getElementById('audio-unlock-overlay');
-  overlay.style.transition = 'opacity 0.5s ease';
-  overlay.style.opacity    = '0';
-  setTimeout(() => {
-    overlay.classList.add('hidden');
-    overlay.style.opacity = '';
-  }, 500);
+  try {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  } catch (e) { /* ignorar */ }
 
-  bootApp();
+  const overlay = document.getElementById('audio-unlock-overlay');
+  if (overlay) {
+    overlay.style.transition = 'opacity 0.5s ease';
+    overlay.style.opacity    = '0';
+    setTimeout(() => {
+      overlay.classList.add('hidden');
+      overlay.style.opacity = '';
+    }, 500);
+  }
+
+  try {
+    bootApp();
+  } catch (e) {
+    console.error('[unlock] bootApp error:', e);
+    setStatus('error', 'ERROR DE INICIO');
+  }
 }
 
 function bootApp() {
@@ -55,24 +70,20 @@ function bootApp() {
 }
 
 // ============================================================
-//  STALE WATCHER — detecta si los precios llevan demasiado
-//  tiempo sin actualizarse y fuerza un re-fetch
+//  STALE WATCHER
 // ============================================================
 function startStaleWatcher() {
-  const STALE_THRESHOLD = 90000; // 90 segundos sin actualización = problema
-
+  const STALE_THRESHOLD = 90000;
   if (_stalePriceTimer) clearInterval(_stalePriceTimer);
   _stalePriceTimer = setInterval(() => {
     const now = Date.now();
     let allStale = true;
-
     TOKENS.forEach(t => {
       const s = priceState[t.address];
       if (s.lastUpdated && (now - new Date(s.lastUpdated).getTime()) < STALE_THRESHOLD) {
         allStale = false;
       }
     });
-
     if (allStale && TOKENS.some(t => !priceState[t.address].loading)) {
       console.warn('[watcher] Precios estancados → forzando actualización');
       setStatus('loading', 'RECONECTANDO');
@@ -123,13 +134,20 @@ function onPriceUpdate() {
 //  EVENTS
 // ============================================================
 function bindEvents() {
+  // Unlock — botón
   const unlockBtn = document.getElementById('unlock-btn');
-  if (unlockBtn) unlockBtn.addEventListener('click', handleUnlock);
+  if (unlockBtn) {
+    unlockBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleUnlock();
+    });
+  }
 
+  // Unlock — click en el overlay (pero NO en el botón, para evitar doble disparo)
   const audioOverlay = document.getElementById('audio-unlock-overlay');
   if (audioOverlay) {
-    audioOverlay.addEventListener('click', e => {
-      if (e.target === audioOverlay || e.target.id === 'unlock-btn') handleUnlock();
+    audioOverlay.addEventListener('click', (e) => {
+      if (e.target === audioOverlay) handleUnlock();
     });
   }
 
@@ -156,7 +174,6 @@ function bindEvents() {
     closeSettings(); _settingsOpen = false;
   });
 
-  // Alerta form
   document.getElementById('add-order-btn')?.addEventListener('click', openOrderForm);
   document.getElementById('cancel-order-btn')?.addEventListener('click', closeOrderForm);
 
@@ -273,11 +290,18 @@ function runTestMode() {
 
   const sym      = state?.symbol || 'USDT.z';
   const tag      = contractTag(tokenAddr);
-  const dirLabel = { crash: 'CRASH −30%', pump: 'PUMP +40%', slight_down: 'Baja leve −5%', slight_up: 'Suba leve +5%', custom: 'Precio manual' }[direction] || direction;
+  const dirLabel = {
+    crash: 'CRASH −30%', pump: 'PUMP +40%',
+    slight_down: 'Baja leve −5%', slight_up: 'Suba leve +5%', custom: 'Precio manual',
+  }[direction] || direction;
 
   playSound(document.getElementById('alert-sound')?.value || 'executive', 1);
   showToast(`🧪 ${sym} (${tag}) · ${dirLabel}`, `Precio simulado: ${formatPrice(simPrice)}`, 'info');
-  addHistoryEntry({ type: 'test', tokenAddress: tokenAddr, tokenSymbol: sym, targetPrice: simPrice, currentPrice: simPrice, note: `Simulación: ${dirLabel}`, isTest: true });
+  addHistoryEntry({
+    type: 'test', tokenAddress: tokenAddr, tokenSymbol: sym,
+    targetPrice: simPrice, currentPrice: simPrice,
+    note: `Simulación: ${dirLabel}`, isTest: true,
+  });
   renderHistory();
   showTestResult(`✓ Simulación activa: ${sym} (${tag}) → ${formatPrice(simPrice)}`, 'success');
 
@@ -332,7 +356,10 @@ function loadSettings() {
       _soundMuted = s.soundMuted;
       setSoundEnabled(!_soundMuted);
       const btn = document.getElementById('sound-btn');
-      if (btn) { btn.textContent = _soundMuted ? '🔕' : '🔔'; btn.classList.toggle('active', !_soundMuted); }
+      if (btn) {
+        btn.textContent = _soundMuted ? '🔕' : '🔔';
+        btn.classList.toggle('active', !_soundMuted);
+      }
     }
 
     if (s.volume !== undefined) {
@@ -345,7 +372,10 @@ function loadSettings() {
 
     if (s.soundType) {
       setSoundType(s.soundType);
-      setTimeout(() => { const sel = document.getElementById('alert-sound'); if (sel) sel.value = s.soundType; }, 50);
+      setTimeout(() => {
+        const sel = document.getElementById('alert-sound');
+        if (sel) sel.value = s.soundType;
+      }, 50);
     }
 
     if (s.notifications && document.getElementById('browser-notifications')) {
