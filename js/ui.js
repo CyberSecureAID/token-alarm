@@ -1,10 +1,11 @@
 // ============================================================
-//  ui.js — DOM rendering & UI updates v5.4
-//  CAMBIOS v5.4:
-//    - Panel SWAP rebranding Token Alarm
-//    - Overlay inferior oculta el branding externo del embed
-//    - Título y links del panel SWAP sin referencias al proveedor
-//    - swap-outer-wrap + swap-brand-overlay
+//  ui.js — DOM rendering & UI updates v5.6
+//  CAMBIOS v5.6:
+//    - Panel SWAP: header con badge de red BSC, sin refs externas
+//    - swap-footer-bar con estado en vivo y branding Token Alarm
+//    - Overlay inferior opaco aumentado a 120px para tapar footer
+//    - iframe con height extra para que el footer quede recortado
+//    - Eliminadas todas las referencias a la fuente del swap embed
 // ============================================================
 
 const USDT_BSC = '0x55d398326f99059fF775485246999027B3197955';
@@ -112,7 +113,7 @@ function buildSwapIframe(address) {
     frameborder="0"
     allowfullscreen
     loading="lazy"
-    title="Token Swap ${contractTag(address)}"
+    title="Swap ${contractTag(address)}"
   ></iframe>`;
 }
 
@@ -215,7 +216,6 @@ function _loadSwap(address) {
   _swapLoaded.add(address);
   const wrap = document.getElementById('swap-iframe-wrap-' + address);
   if (!wrap) return;
-  // Preservar el overlay antes de limpiar el innerHTML
   const overlay = wrap.querySelector('.swap-brand-overlay');
   wrap.innerHTML = buildSwapIframe(address);
   if (overlay) wrap.appendChild(overlay);
@@ -334,20 +334,22 @@ function buildTokenCard(token, state) {
          style="color:var(--accent-red);border-color:rgba(224,92,110,0.3)">✕</button>`
     : '';
 
+  const symDisplay = state.symbol || token.symbol;
+
   card.innerHTML = `
     <!-- TOP -->
     <div class="card-top">
       <div class="token-logo-wrap">
         <img class="token-logo"
              src="${logoSrc}"
-             alt="${state.symbol}"
+             alt="${symDisplay}"
              onerror="this.src='${generateAvatarSVG(token.symbol, token.color)}'"
         />
         <span class="verified-badge${state.verified ? '' : ' hidden'}" title="Token verificado">✓</span>
       </div>
 
       <div class="token-identity">
-        <div class="token-symbol">${state.symbol || token.symbol}</div>
+        <div class="token-symbol">${symDisplay}</div>
         <div class="token-name">${state.name || token.name}</div>
         ${state.pairCreatedAt
           ? `<div class="token-age">Pool: ${formatAge(state.pairCreatedAt)}</div>`
@@ -372,7 +374,7 @@ function buildTokenCard(token, state) {
           <button class="chart-toggle-btn swap-toggle-btn"
                   onclick="openPanel('${token.address}','swap')"
                   id="swap-btn-${token.address}"
-                  title="Swap USDT → ${state.symbol || token.symbol}">
+                  title="Swap USDT → ${symDisplay}">
             ⇄ SWAP
           </button>
         </div>
@@ -440,7 +442,7 @@ function buildTokenCard(token, state) {
     <!-- PANEL: GRÁFICA -->
     <div class="chart-panel" id="chart-${token.address}" style="display:none">
       <div class="chart-panel-header">
-        <span class="chart-panel-title">GRÁFICA — ${state.symbol || token.symbol} (${tag})</span>
+        <span class="chart-panel-title">GRÁFICA — ${symDisplay} (${tag})</span>
         <div class="chart-source-tabs">
           <button id="chart-src-dexscreener-${token.address}"
                   class="chart-src-btn${curSource === 'dexscreener' ? ' active' : ''}"
@@ -464,25 +466,50 @@ function buildTokenCard(token, state) {
       </div>
     </div>
 
-    <!-- PANEL: SWAP -->
+    <!-- PANEL: SWAP — Token Alarm branded, sin refs externas -->
     <div class="chart-panel swap-panel" id="swap-${token.address}" style="display:none">
+
+      <!-- Header con badge de red y símbolo -->
       <div class="chart-panel-header">
-        <span class="chart-panel-title">⇄ SWAP — USDT → ${state.symbol || token.symbol} (${tag})</span>
-        <a class="chart-ext-link"
-           href="https://pancakeswap.finance/swap?inputCurrency=${USDT_BSC}&outputCurrency=${token.address}"
-           target="_blank" rel="noopener" title="Abrir en PancakeSwap">↗</a>
-      </div>
-      <div class="swap-iframe-wrap" id="swap-iframe-wrap-${token.address}">
-        <div style="display:flex;align-items:center;justify-content:center;height:100%;
-                    font-family:var(--font-mono);font-size:11px;color:var(--text-muted);
-                    letter-spacing:2px;">
-          CARGANDO…
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="chart-panel-title">⇄ SWAP — USDT → ${symDisplay}</span>
+          <span class="swap-network-badge">BSC</span>
         </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:1px">
+            ${tag}
+          </span>
+          <a class="chart-ext-link"
+             href="https://pancakeswap.finance/swap?inputCurrency=${USDT_BSC}&outputCurrency=${token.address}"
+             target="_blank" rel="noopener" title="Abrir en PancakeSwap">↗ PCS</a>
+        </div>
+      </div>
+
+      <!-- Iframe wrap: overflow:hidden recorta el footer externo -->
+      <div class="swap-iframe-wrap" id="swap-iframe-wrap-${token.address}">
+        <!-- Placeholder mientras carga -->
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                    height:100%;gap:10px;font-family:var(--font-mono);font-size:11px;
+                    color:var(--text-muted);letter-spacing:2px;">
+          <span style="font-size:22px;opacity:0.3">⇄</span>
+          CARGANDO SWAP…
+        </div>
+        <!-- Overlay sólido que tapa branding externo en el footer del iframe -->
         <div class="swap-brand-overlay">
           <span class="swap-brand-icon">◈</span>
           <span class="swap-brand-text">TOKEN<span class="swap-brand-accent">ALARM</span></span>
         </div>
       </div>
+
+      <!-- Footer decorativo Token Alarm -->
+      <div class="swap-footer-bar">
+        <span class="swap-footer-info">DEX · Binance Smart Chain · ${symDisplay}</span>
+        <span class="swap-footer-badge">
+          <span class="swap-footer-dot"></span>
+          EN VIVO
+        </span>
+      </div>
+
     </div>
   `;
 
