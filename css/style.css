@@ -170,7 +170,7 @@ body {
 /* === TICKER === */
 .header-ticker {
   background: rgba(0,0,0,0.3); border-top: 1px solid var(--border);
-  height: 28px; overflow: hidden; position: relative;
+  height: 42px; overflow: hidden; position: relative;
 }
 .header-ticker::before,
 .header-ticker::after {
@@ -446,7 +446,7 @@ main { max-width: 1300px; margin: 0 auto; padding: 40px 32px 80px; display: flex
 .chart-brand-overlay {
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  height: 28px;
+  height: 42px;
   background: linear-gradient(to right, #07090d 0%, #0b0e14 50%, #07090d 100%);
   border-top: 1px solid var(--border);
   z-index: 10;
