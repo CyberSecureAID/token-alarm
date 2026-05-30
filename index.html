@@ -9,6 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2307090d'/%3E%3Cpolygon points='32,8 56,32 32,56 8,32' fill='none' stroke='%23c9a84c' stroke-width='3' opacity='0.9'/%3E%3Cpolygon points='32,16 48,32 32,48 16,32' fill='%23c9a84c' opacity='0.18'/%3E%3Cline x1='32' y1='8' x2='32' y2='56' stroke='%23c9a84c' stroke-width='0.8' opacity='0.3'/%3E%3Cline x1='8' y1='32' x2='56' y2='32' stroke='%23c9a84c' stroke-width='0.8' opacity='0.3'/%3E%3C/svg%3E" />
 
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style_additions.css" />
 </head>
 <body>
 
@@ -78,7 +79,10 @@
     <section class="section-tokens">
       <div class="section-header">
         <h2 class="section-title">TOKENS MONITOREADOS</h2>
-        <span class="section-count" id="tokens-count">6 tokens</span>
+        <div style="display:flex;gap:10px;align-items:center">
+          <span class="section-count" id="tokens-count">3 tokens</span>
+          <button class="btn-add-contract" onclick="openAddTokenModal()">＋ CONTRATO</button>
+        </div>
       </div>
       <div class="tokens-grid" id="tokens-grid">
         <!-- Token cards injected by JS -->
