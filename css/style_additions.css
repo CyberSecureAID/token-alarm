@@ -1,5 +1,5 @@
 /* ============================================================
-   TOKEN ALARM — ADDITIONS v5.3
+   TOKEN ALARM — ADDITIONS v5.4
    ============================================================ */
 
 /* ══════════════════════════════════════════
@@ -119,50 +119,119 @@
 }
 
 /* ══════════════════════════════════════════
-   SWAP PANEL v5.3
+   SWAP PANEL v5.4
+   Estilo propio Token Alarm — sin referencias externas visibles
    ══════════════════════════════════════════ */
 
-/* Botón SWAP */
+/* Botón SWAP en la card */
 .swap-toggle-btn {
-  border-color: rgba(61,127,255,0.35) !important;
-  color: var(--accent-blue) !important;
+  border-color: rgba(46,204,135,0.35) !important;
+  color: var(--accent-green) !important;
 }
 .swap-toggle-btn:hover {
-  border-color: var(--accent-blue) !important;
-  background: rgba(61,127,255,0.06) !important;
+  border-color: var(--accent-green) !important;
+  background: rgba(46,204,135,0.06) !important;
 }
 .swap-toggle-btn.active {
-  border-color: var(--accent-blue) !important;
-  background: rgba(61,127,255,0.10) !important;
-  color: var(--accent-blue) !important;
+  border-color: var(--accent-green) !important;
+  background: rgba(46,204,135,0.10) !important;
+  color: var(--accent-green) !important;
+}
+
+/* Panel contenedor swap */
+.swap-panel {
+  border-top: 1px solid rgba(46,204,135,0.18) !important;
 }
 
 /* Header del panel Swap */
 .swap-panel .chart-panel-header {
-  border-bottom-color: rgba(61,127,255,0.15);
+  background: rgba(46,204,135,0.03);
+  border-bottom: 1px solid rgba(46,204,135,0.12);
 }
 .swap-panel .chart-panel-title {
-  color: var(--accent-blue);
-  opacity: 0.8;
+  color: var(--accent-green);
+  opacity: 0.85;
+  letter-spacing: 2.5px;
 }
 
-/* Wrap del iframe de swap */
+/* ── Wrap externo: posicionamiento para el overlay ── */
+.swap-outer-wrap {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+/* ── Iframe de swap ── */
 .swap-iframe-wrap {
   width: 100%;
   height: 630px;
-  background: #0a0c10;
+  background: var(--bg-base);
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
 }
 
-/* El iframe ocupa todo el wrap */
 .swap-iframe {
   width: 100%;
-  height: 100%;
+  height: calc(100% + 56px);   /* crece hacia abajo para ocultar footer del embed */
+  margin-top: 0;
   border: none;
   display: block;
+}
+
+/* ── Overlay inferior: tapa el branding externo del embed ── */
+.swap-brand-overlay {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 56px;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--bg-base) 38%,
+    var(--bg-base) 100%
+  );
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 10px;
+  gap: 6px;
+  user-select: none;
+}
+
+.swap-brand-icon {
+  color: var(--accent-green);
+  font-size: 11px;
+  opacity: 0.6;
+  line-height: 1;
+}
+
+.swap-brand-text {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 4px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+
+.swap-brand-text .swap-brand-accent {
+  color: var(--accent-green);
+  opacity: 1;
+}
+
+/* ── Línea decorativa superior del swap wrap ── */
+.swap-outer-wrap::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 50%; transform: translateX(-50%);
+  width: 80px; height: 1px;
+  background: linear-gradient(to right, transparent, var(--accent-green), transparent);
+  opacity: 0.25;
+  z-index: 5;
+  pointer-events: none;
 }
 
 /* Responsive */
