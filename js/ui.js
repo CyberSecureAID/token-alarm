@@ -215,7 +215,10 @@ function _loadSwap(address) {
   _swapLoaded.add(address);
   const wrap = document.getElementById('swap-iframe-wrap-' + address);
   if (!wrap) return;
+  // Preservar el overlay antes de limpiar el innerHTML
+  const overlay = wrap.querySelector('.swap-brand-overlay');
   wrap.innerHTML = buildSwapIframe(address);
+  if (overlay) wrap.appendChild(overlay);
 }
 
 // ============================================================
@@ -469,13 +472,11 @@ function buildTokenCard(token, state) {
            href="https://pancakeswap.finance/swap?inputCurrency=${USDT_BSC}&outputCurrency=${token.address}"
            target="_blank" rel="noopener" title="Abrir en PancakeSwap">↗</a>
       </div>
-      <div class="swap-outer-wrap">
-        <div class="swap-iframe-wrap" id="swap-iframe-wrap-${token.address}">
-          <div style="display:flex;align-items:center;justify-content:center;height:100%;
-                      font-family:var(--font-mono);font-size:11px;color:var(--text-muted);
-                      letter-spacing:2px;">
-            CARGANDO…
-          </div>
+      <div class="swap-iframe-wrap" id="swap-iframe-wrap-${token.address}">
+        <div style="display:flex;align-items:center;justify-content:center;height:100%;
+                    font-family:var(--font-mono);font-size:11px;color:var(--text-muted);
+                    letter-spacing:2px;">
+          CARGANDO…
         </div>
         <div class="swap-brand-overlay">
           <span class="swap-brand-icon">◈</span>
