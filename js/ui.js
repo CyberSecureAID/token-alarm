@@ -1,15 +1,15 @@
 // ============================================================
-//  ui.js — DOM rendering & UI updates v4.1
+//  ui.js — DOM rendering & UI updates v5.0
 //
-//  CAMBIOS v4.1:
-//    - Precio USD como referencia PRINCIPAL (grande)
-//    - Precio BNB como secundario (pequeño)
-//    - Gráficas precargadas ocultas en segundo plano
-//    - Branding Token Alarm sobre iframe DexScreener
+//  NUEVO v5.0:
+//    - Modal "Agregar contrato" con validación inline
+//    - Botón ✕ en cada card custom para eliminarla
+//    - Toggle DexScreener ↔ PooCoin por card
+//    - Gráficas precargadas en segundo plano
 // ============================================================
 
 // ============================================================
-//  TICKER — Infinite seamless scroll via JS
+//  TICKER
 // ============================================================
 let _tickerRAF   = null;
 let _tickerX     = 0;
@@ -25,8 +25,6 @@ function buildTickerHTML() {
     const sgn  = ch >= 0 ? '+' : '';
     const tag  = contractTag(t.address);
     const sym  = (s && s.symbol) ? s.symbol : t.symbol;
-
-    // Mostrar precio USD (primario) en el ticker
     const priceUSD = (s && s.price !== null)       ? formatPrice(s.price)           : '—';
     const priceBNB = (s && s.priceNative !== null) ? formatPriceBNB(s.priceNative) : '';
 
@@ -45,11 +43,9 @@ function updateTicker() {
   const innerA = document.getElementById('ticker-inner-a');
   const innerB = document.getElementById('ticker-inner-b');
   if (!innerA || !innerB) return;
-
   const html = buildTickerHTML();
   innerA.innerHTML = html;
   innerB.innerHTML = html;
-
   requestAnimationFrame(() => {
     _tickerWidth = innerA.offsetWidth;
     if (!_tickerRAF) startTickerLoop();
@@ -59,18 +55,50 @@ function updateTicker() {
 function startTickerLoop() {
   const track = document.getElementById('ticker-track');
   if (!track) return;
-
   function step() {
     _tickerX -= _tickerSpeed;
-    if (_tickerWidth > 0 && Math.abs(_tickerX) >= _tickerWidth) {
-      _tickerX = 0;
-    }
+    if (_tickerWidth > 0 && Math.abs(_tickerX) >= _tickerWidth) _tickerX = 0;
     track.style.transform = `translateX(${_tickerX}px)`;
     _tickerRAF = requestAnimationFrame(step);
   }
-
   if (_tickerRAF) cancelAnimationFrame(_tickerRAF);
   _tickerRAF = requestAnimationFrame(step);
+}
+
+// ============================================================
+//  CHART SOURCE PER CARD  (dexscreener | poocoin)
+// ============================================================
+const _chartSource = {};   // address → 'dexscreener' | 'poocoin'
+const _chartLoaded = new Set();
+
+function getChartSource(address) {
+  return _chartSource[address] || 'dexscreener';
+}
+
+function chartUrlFor(address, source) {
+  const token    = getToken(address);
+  const state    = priceState[address];
+  const pairAddr = state?.pairAddress || token?.pairAddress;
+
+  if (source === 'poocoin') {
+    return `https://poocoin.app/tokens/${address}`;
+  }
+  // dexscreener
+  return pairAddr
+    ? `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`
+    : `https://dexscreener.com/bsc/${address}?embed=1&theme=dark&info=0&trades=0`;
+}
+
+function buildChartIframe(address, source) {
+  const url = chartUrlFor(address, source);
+  return `<iframe
+    src="${url}"
+    class="chart-iframe"
+    frameborder="0"
+    allowfullscreen
+    loading="lazy"
+    title="Chart ${contractTag(address)}"
+  ></iframe>`;
 }
 
 // ============================================================
@@ -80,28 +108,21 @@ function renderTokenCards() {
   const grid = document.getElementById('tokens-grid');
   if (!grid) return;
   grid.innerHTML = '';
-
   TOKENS.forEach(token => {
     const state = priceState[token.address];
     const card  = buildTokenCard(token, state);
     grid.appendChild(card);
   });
-
-  // Precargar todas las gráficas en segundo plano
   setTimeout(preloadAllCharts, 1500);
-
   const countEl = document.getElementById('tokens-count');
-  if (countEl) countEl.textContent = `${TOKENS.length} tokens`;
+  if (countEl) countEl.textContent = `${TOKENS.length} token${TOKENS.length !== 1 ? 's' : ''}`;
 }
 
 // ============================================================
-//  PRECARGA DE GRÁFICAS EN SEGUNDO PLANO
+//  PRECARGA DE GRÁFICAS
 // ============================================================
-const _chartLoaded = new Set();
-
 function preloadAllCharts() {
   TOKENS.forEach((token, idx) => {
-    // Escalonar la carga para no saturar el navegador
     setTimeout(() => preloadChart(token.address), idx * 800);
   });
 }
@@ -109,52 +130,51 @@ function preloadAllCharts() {
 function preloadChart(address) {
   if (_chartLoaded.has(address)) return;
   _chartLoaded.add(address);
-
-  const wrap  = document.getElementById('chart-iframe-wrap-' + address);
-  const token = getToken(address);
-  const state = priceState[address];
+  const wrap = document.getElementById('chart-iframe-wrap-' + address);
   if (!wrap) return;
-
-  const pairAddr = state?.pairAddress || token?.pairAddress;
-  const chartUrl = pairAddr
-    ? `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`
-    : `https://dexscreener.com/bsc/${address}?embed=1&theme=dark&info=0&trades=0`;
-
-  wrap.innerHTML = `<iframe
-    src="${chartUrl}"
-    class="chart-iframe"
-    frameborder="0"
-    allowfullscreen
-    loading="lazy"
-    title="Chart ${contractTag(address)}"
-  ></iframe>`;
+  const src = getChartSource(address);
+  _injectIframe(wrap, address, src);
 }
 
-// Recargar gráfica si el pairAddress se resolvió después de la precarga
+function _injectIframe(wrap, address, source) {
+  // Preservar el overlay de branding
+  const overlay = wrap.querySelector('.chart-brand-overlay');
+  wrap.innerHTML = buildChartIframe(address, source);
+  if (overlay) wrap.appendChild(overlay);
+}
+
 function recheckChartUrl(address) {
   const wrap  = document.getElementById('chart-iframe-wrap-' + address);
   const token = getToken(address);
   const state = priceState[address];
   if (!wrap || !_chartLoaded.has(address)) return;
-
+  const src      = getChartSource(address);
+  if (src !== 'dexscreener') return;   // PooCoin no cambia por pairAddress
   const pairAddr = state?.pairAddress || token?.pairAddress;
   if (!pairAddr) return;
-
   const currentSrc = wrap.querySelector('iframe')?.src || '';
   const newUrl = `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`;
-  // Solo recargar si la URL cambió (pairAddress recién descubierto)
-  if (!currentSrc.includes(pairAddr)) {
-    wrap.innerHTML = `<iframe
-      src="${newUrl}"
-      class="chart-iframe"
-      frameborder="0"
-      allowfullscreen
-      loading="lazy"
-      title="Chart ${contractTag(address)}"
-    ></iframe>`;
-  }
+  if (!currentSrc.includes(pairAddr)) _injectIframe(wrap, address, src);
 }
 
+// ============================================================
+//  TOGGLE FUENTE DE GRÁFICA (DexScreener ↔ PooCoin)
+// ============================================================
+function switchChartSource(address, source) {
+  _chartSource[address] = source;
+  const wrap = document.getElementById('chart-iframe-wrap-' + address);
+  if (wrap) _injectIframe(wrap, address, source);
+
+  // Actualizar botones activos
+  ['dexscreener', 'poocoin'].forEach(s => {
+    const btn = document.getElementById(`chart-src-${s}-${address}`);
+    if (btn) btn.classList.toggle('active', s === source);
+  });
+}
+
+// ============================================================
+//  BUILD TOKEN CARD
+// ============================================================
 function buildTokenCard(token, state) {
   const card = document.createElement('div');
   card.className = 'token-card' + (state.loading ? ' card-loading' : '');
@@ -175,12 +195,10 @@ function buildTokenCard(token, state) {
     ? 'var(--accent-green)'
     : buyPct < 40 ? 'var(--accent-red)' : 'var(--accent-gold)';
 
-  // Dirección del precio
   const priceDir = (state.prevPrice !== null && state.price !== null)
     ? (state.price > state.prevPrice ? 'up' : state.price < state.prevPrice ? 'down' : '')
     : '';
 
-  // ── BLOQUE DE PRECIO: USD principal (grande), BNB secundario (pequeño) ──
   let priceBlock = '';
   if (state.loading) {
     priceBlock = `
@@ -204,11 +222,19 @@ function buildTokenCard(token, state) {
       </div>`;
   }
 
-  // URL de la gráfica
   const pairAddr = state.pairAddress || token.pairAddress;
   const dexscreenerLink = pairAddr
     ? `https://dexscreener.com/bsc/${pairAddr}`
     : `https://dexscreener.com/bsc/${token.address}`;
+  const poocoinLink = `https://poocoin.app/tokens/${token.address}`;
+
+  const curSource = getChartSource(token.address);
+
+  // Botón eliminar solo para tokens custom
+  const removeBtn = token.custom
+    ? `<button class="icon-btn remove-token-btn" onclick="removeTokenAndRefresh('${token.address}')"
+         title="Eliminar contrato" style="color:var(--accent-red);border-color:rgba(224,92,110,0.3)">✕</button>`
+    : '';
 
   card.innerHTML = `
     <!-- TOP -->
@@ -217,7 +243,7 @@ function buildTokenCard(token, state) {
         <img class="token-logo"
              src="${logoSrc}"
              alt="${state.symbol}"
-             onerror="this.src='${USDT_LOGO_URL}'"
+             onerror="this.src='${generateAvatarSVG(token.symbol, token.color)}'"
         />
         <span class="verified-badge${state.verified ? '' : ' hidden'}" title="Token verificado">✓</span>
       </div>
@@ -231,9 +257,12 @@ function buildTokenCard(token, state) {
       </div>
 
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-        <div class="token-address" onclick="copyAddress('${token.address}')" title="Copiar dirección">
-          <span class="contract-tag">${tag}</span>
-          <span style="opacity:0.4">⎘</span>
+        <div style="display:flex;gap:5px;align-items:center">
+          <div class="token-address" onclick="copyAddress('${token.address}')" title="Copiar dirección">
+            <span class="contract-tag">${tag}</span>
+            <span style="opacity:0.4">⎘</span>
+          </div>
+          ${removeBtn}
         </div>
         <button class="chart-toggle-btn" onclick="toggleChart('${token.address}')"
                 id="chart-btn-${token.address}" title="Ver gráfica en vivo">
@@ -242,7 +271,7 @@ function buildTokenCard(token, state) {
       </div>
     </div>
 
-    <!-- PRECIO — USD principal (grande), BNB secundario (pequeño) -->
+    <!-- PRECIO -->
     <div class="card-price">
       ${priceBlock}
       <div class="price-timeframes">
@@ -300,19 +329,28 @@ function buildTokenCard(token, state) {
       </div>
     </div>
 
-    <!-- GRÁFICA DESPLEGABLE — iframe precargado, oculto hasta que se abra -->
+    <!-- GRÁFICA DESPLEGABLE -->
     <div class="chart-panel" id="chart-${token.address}" style="display:none">
       <div class="chart-panel-header">
-        <span class="chart-panel-title">GRÁFICA EN VIVO — ${state.symbol} (${tag})</span>
-        <a class="chart-ext-link"
-           href="${dexscreenerLink}"
-           target="_blank" rel="noopener" title="Abrir en DexScreener">
-          ↗ VER MÁS
-        </a>
+        <span class="chart-panel-title">GRÁFICA — ${state.symbol} (${tag})</span>
+
+        <!-- Selector de fuente DexScreener / PooCoin -->
+        <div class="chart-source-tabs">
+          <button id="chart-src-dexscreener-${token.address}"
+                  class="chart-src-btn${curSource === 'dexscreener' ? ' active' : ''}"
+                  onclick="switchChartSource('${token.address}','dexscreener')"
+                  title="DexScreener">DSC</button>
+          <button id="chart-src-poocoin-${token.address}"
+                  class="chart-src-btn${curSource === 'poocoin' ? ' active' : ''}"
+                  onclick="switchChartSource('${token.address}','poocoin')"
+                  title="PooCoin">POO</button>
+          <a class="chart-ext-link"
+             href="${curSource === 'poocoin' ? poocoinLink : dexscreenerLink}"
+             id="chart-ext-${token.address}"
+             target="_blank" rel="noopener" title="Abrir en nueva pestaña">↗</a>
+        </div>
       </div>
       <div class="chart-iframe-wrap" id="chart-iframe-wrap-${token.address}">
-        <!-- iframe precargado en segundo plano por preloadChart() -->
-        <!-- Overlay de branding Token Alarm (cubre el footer de DexScreener) -->
         <div class="chart-brand-overlay">
           <span class="chart-brand-icon">◈</span>
           <span class="chart-brand-text">TOKEN<span class="chart-brand-accent">ALARM</span></span>
@@ -325,42 +363,37 @@ function buildTokenCard(token, state) {
 }
 
 // ============================================================
-//  TOGGLE GRÁFICA DESPLEGABLE
-//  El iframe ya está precargado → apertura instantánea
+//  TOGGLE GRÁFICA
 // ============================================================
 function toggleChart(address) {
   const panel = document.getElementById('chart-' + address);
   const btn   = document.getElementById('chart-btn-' + address);
   if (!panel) return;
-
   const isOpen = panel.style.display !== 'none';
-
   if (isOpen) {
     panel.style.display = 'none';
     if (btn) { btn.classList.remove('active'); btn.querySelector('.chart-btn-icon').textContent = '▾'; }
   } else {
     panel.style.display = 'block';
     if (btn) { btn.classList.add('active'); btn.querySelector('.chart-btn-icon').textContent = '▴'; }
-    // Si el pairAddress se resolvió tras la precarga inicial, actualizar URL
+    preloadChart(address);
     recheckChartUrl(address);
   }
 }
 
 // ============================================================
-//  ACTUALIZACIÓN LIVE DE PRECIO (sin re-render completo)
+//  ACTUALIZACIÓN LIVE DE PRECIO
 // ============================================================
 function updateCardPrice(tokenAddress) {
   const card  = document.getElementById('card-' + tokenAddress);
   const state = priceState[tokenAddress];
   if (!card || !state) return;
 
-  // ── PRECIO USD (principal, grande) ──
   const priceUsdEl = document.getElementById('price-usd-' + tokenAddress);
   if (priceUsdEl) {
     const priceDir = (state.prevPrice !== null && state.price !== null)
       ? (state.price > state.prevPrice ? 'up' : state.price < state.prevPrice ? 'down' : '')
       : '';
-
     if (state.error || (state.price === null && state.priceNative === null)) {
       priceUsdEl.className = 'price-error';
       priceUsdEl.innerHTML = `SIN DATOS <span class="error-hint">${state.errorMsg || ''}</span>`;
@@ -371,14 +404,12 @@ function updateCardPrice(tokenAddress) {
     }
   }
 
-  // ── PRECIO BNB (secundario, pequeño) ──
   const priceBnbEl = document.getElementById('price-bnb-' + tokenAddress);
   if (priceBnbEl && !state.error) {
     priceBnbEl.className = 'price-secondary';
     priceBnbEl.textContent = state.priceNative !== null ? formatPriceBNB(state.priceNative) : '';
   }
 
-  // Variaciones
   const tfEl = card.querySelector('.price-timeframes');
   if (tfEl) {
     tfEl.innerHTML =
@@ -387,7 +418,6 @@ function updateCardPrice(tokenAddress) {
       buildChangePill(state.priceChange7d, '7D');
   }
 
-  // Stats
   const sv   = card.querySelectorAll('.stat-value');
   const activeAlerts = getOrders().filter(o =>
     o.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() && !o.triggered
@@ -407,7 +437,6 @@ function updateCardPrice(tokenAddress) {
     }
   });
 
-  // Barra de presión
   const buyCount  = state.buys24h  || 0;
   const sellCount = state.sells24h || 0;
   const total     = buyCount + sellCount;
@@ -428,7 +457,6 @@ function updateCardPrice(tokenAddress) {
     }
   }
 
-  // Chips de alertas
   const chipsEl = document.getElementById('chips-' + tokenAddress);
   if (chipsEl) {
     const orders = getOrders().filter(o =>
@@ -437,8 +465,144 @@ function updateCardPrice(tokenAddress) {
     chipsEl.innerHTML = renderOrderChips(tokenAddress, orders);
   }
 
-  // Recargar iframe si el pairAddress se resolvió ahora
   recheckChartUrl(tokenAddress);
+}
+
+// ============================================================
+//  ADD TOKEN MODAL
+// ============================================================
+function openAddTokenModal() {
+  let modal = document.getElementById('add-token-modal');
+  if (!modal) {
+    modal = _buildAddTokenModal();
+    document.body.appendChild(modal);
+  }
+  modal.classList.remove('hidden');
+  document.getElementById('at-address')?.focus();
+}
+
+function closeAddTokenModal() {
+  const modal = document.getElementById('add-token-modal');
+  if (modal) modal.classList.add('hidden');
+  // Limpiar campos
+  ['at-address','at-symbol','at-name','at-color'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = id === 'at-color' ? '#c9a84c' : '';
+  });
+  const err = document.getElementById('at-error');
+  if (err) err.textContent = '';
+}
+
+function _buildAddTokenModal() {
+  const modal = document.createElement('div');
+  modal.id = 'add-token-modal';
+  modal.className = 'add-token-modal-overlay';
+  modal.innerHTML = `
+    <div class="add-token-modal-box">
+      <div class="add-token-modal-header">
+        <span style="font-family:var(--font-display);font-size:22px;letter-spacing:5px;color:var(--text-secondary)">AGREGAR CONTRATO</span>
+        <button class="icon-btn" onclick="closeAddTokenModal()">✕</button>
+      </div>
+      <div class="add-token-modal-body">
+        <div class="form-group">
+          <label>DIRECCIÓN DEL CONTRATO (BSC)</label>
+          <input id="at-address" class="form-control"
+                 placeholder="0x..." maxlength="42" autocomplete="off"
+                 style="font-family:var(--font-mono);letter-spacing:0.5px"
+          />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="form-group">
+            <label>SÍMBOLO (ej: BNB)</label>
+            <input id="at-symbol" class="form-control" placeholder="TOKEN" maxlength="12" />
+          </div>
+          <div class="form-group">
+            <label>NOMBRE (opcional)</label>
+            <input id="at-name" class="form-control" placeholder="Mi Token" maxlength="48" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>COLOR DE ACENTO</label>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input id="at-color" type="color" value="#c9a84c"
+                   style="width:42px;height:34px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-input);cursor:pointer"
+            />
+            <div class="at-presets">
+              ${['#26a17b','#c9a84c','#3d7fff','#e05c6e','#2ecc87','#F0B90B','#9b59b6','#e67e22'].map(c =>
+                `<span class="at-preset-dot" style="background:${c}" onclick="document.getElementById('at-color').value='${c}'" title="${c}"></span>`
+              ).join('')}
+            </div>
+          </div>
+        </div>
+        <div id="at-error" style="color:var(--accent-red);font-family:var(--font-mono);font-size:11px;min-height:18px"></div>
+        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:4px">
+          <button class="btn-secondary" onclick="closeAddTokenModal()">CANCELAR</button>
+          <button class="btn-primary" onclick="submitAddToken()">AGREGAR TOKEN</button>
+        </div>
+      </div>
+    </div>
+  `;
+  // Cerrar clickando fuera
+  modal.addEventListener('click', e => { if (e.target === modal) closeAddTokenModal(); });
+  return modal;
+}
+
+function submitAddToken() {
+  const address = document.getElementById('at-address')?.value?.trim();
+  const symbol  = document.getElementById('at-symbol')?.value?.trim();
+  const name    = document.getElementById('at-name')?.value?.trim();
+  const color   = document.getElementById('at-color')?.value || '#c9a84c';
+  const errEl   = document.getElementById('at-error');
+
+  if (!address || address.length < 10) {
+    if (errEl) errEl.textContent = '⚠ Ingresá una dirección de contrato válida.';
+    return;
+  }
+
+  const result = addCustomToken({ address, symbol, name, color });
+  if (result.error) {
+    if (errEl) errEl.textContent = '⚠ ' + result.error;
+    return;
+  }
+
+  closeAddTokenModal();
+
+  // Agregar card al grid sin re-renderizar todo
+  const grid = document.getElementById('tokens-grid');
+  if (grid) {
+    const card = buildTokenCard(result.token, priceState[result.token.address]);
+    grid.appendChild(card);
+  }
+
+  // Actualizar contadores y selects
+  const countEl = document.getElementById('tokens-count');
+  if (countEl) countEl.textContent = `${TOKENS.length} tokens`;
+  populateTokenSelects();
+
+  // Fetchear precio del nuevo token
+  if (typeof fetchAllPrices === 'function') fetchAllPrices();
+
+  // Resolver logo en background
+  setTimeout(() => resolveTokenLogo(result.token), 1000);
+
+  showToast('✓ Contrato agregado', `${result.token.symbol} (${contractTag(result.token.address)}) — buscando precio…`, 'success');
+}
+
+function removeTokenAndRefresh(address) {
+  const token = getToken(address);
+  if (!token || !token.custom) return;
+  const sym = token.symbol;
+  const ok  = removeCustomToken(address);
+  if (!ok) return;
+
+  const card = document.getElementById('card-' + address);
+  if (card) card.remove();
+
+  const countEl = document.getElementById('tokens-count');
+  if (countEl) countEl.textContent = `${TOKENS.length} tokens`;
+  populateTokenSelects();
+  updateTicker();
+  showToast('Contrato eliminado', `${sym} (${contractTag(address)}) removido.`, 'success');
 }
 
 // ============================================================
