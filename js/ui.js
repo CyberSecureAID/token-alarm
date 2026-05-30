@@ -1,10 +1,14 @@
 // ============================================================
-//  ui.js — DOM rendering & UI updates v5.2
-//  FIXES v5.2:
-//    - PooCoin embed usa https://poocoin.app/tokens/<address>
-//      (carga la página completa, funciona sin restricción)
-//    - switchChartSource / toggleChart con tabs DSC / POO
+//  ui.js — DOM rendering & UI updates v5.3
+//  CAMBIOS v5.3:
+//    - Panel SWAP por card (PooCoin embed-swap)
+//      inputCurrency  = USDT BSC (fijo)
+//      outputCurrency = dirección del token (dinámico)
+//    - Tabs CHART / SWAP en cada card
+//    - PooCoin chart usa https://poocoin.app/tokens/<address>
 // ============================================================
+
+const USDT_BSC = '0x55d398326f99059fF775485246999027B3197955';
 
 // ============================================================
 //  TICKER
@@ -79,12 +83,15 @@ function chartUrlFor(address, source) {
   const pairAddr = state?.pairAddress || token?.pairAddress;
 
   if (source === 'poocoin') {
-    // Carga la página completa de PooCoin con el contrato del token
     return `https://poocoin.app/tokens/${address}`;
   }
   return pairAddr
     ? `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`
     : `https://dexscreener.com/bsc/${address}?embed=1&theme=dark&info=0&trades=0`;
+}
+
+function swapUrlFor(address) {
+  return `https://poocoin.app/embed-swap?inputCurrency=${USDT_BSC}&outputCurrency=${address}`;
 }
 
 function buildChartIframe(address, source) {
@@ -99,16 +106,22 @@ function buildChartIframe(address, source) {
   ></iframe>`;
 }
 
+function buildSwapIframe(address) {
+  return `<iframe
+    src="${swapUrlFor(address)}"
+    class="swap-iframe"
+    frameborder="0"
+    allowfullscreen
+    loading="lazy"
+    title="Swap ${contractTag(address)}"
+  ></iframe>`;
+}
+
 function _injectIframe(wrap, address, source) {
   const overlay = wrap.querySelector('.chart-brand-overlay');
   wrap.innerHTML = buildChartIframe(address, source);
   if (overlay) wrap.appendChild(overlay);
-
-  if (source === 'poocoin') {
-    wrap.classList.add('poocoin-mode');
-  } else {
-    wrap.classList.remove('poocoin-mode');
-  }
+  wrap.classList.toggle('poocoin-mode', source === 'poocoin');
 }
 
 function switchChartSource(address, source) {
@@ -136,7 +149,83 @@ function switchChartSource(address, source) {
 }
 
 // ============================================================
-//  PRELOAD
+//  PANEL ACTIVO POR CARD  ('chart' | 'swap' | null)
+// ============================================================
+const _activePanel = {};
+
+function openPanel(address, panel) {
+  const current = _activePanel[address];
+
+  // Si el mismo panel ya está abierto → cerrar todo
+  if (current === panel) {
+    _closePanel(address);
+    return;
+  }
+
+  // Ocultar ambos paneles primero
+  _setPanelVisible(address, 'chart', false);
+  _setPanelVisible(address, 'swap',  false);
+
+  // Abrir el solicitado
+  _activePanel[address] = panel;
+  _setPanelVisible(address, panel, true);
+
+  // Cargar contenido si todavía no se hizo
+  if (panel === 'chart') {
+    preloadChart(address);
+    recheckChartUrl(address);
+  } else if (panel === 'swap') {
+    _loadSwap(address);
+  }
+
+  // Actualizar estado visual de botones
+  _syncPanelBtns(address);
+}
+
+function _closePanel(address) {
+  _setPanelVisible(address, 'chart', false);
+  _setPanelVisible(address, 'swap',  false);
+  _activePanel[address] = null;
+  _syncPanelBtns(address);
+}
+
+function _setPanelVisible(address, panel, visible) {
+  const el = document.getElementById(`${panel}-${address}`);
+  if (el) el.style.display = visible ? 'block' : 'none';
+}
+
+function _syncPanelBtns(address) {
+  const active = _activePanel[address];
+
+  const chartBtn = document.getElementById('chart-btn-' + address);
+  if (chartBtn) {
+    const icon = chartBtn.querySelector('.chart-btn-icon');
+    const isActive = active === 'chart';
+    chartBtn.classList.toggle('active', isActive);
+    if (icon) icon.textContent = isActive ? '▴' : '▾';
+  }
+
+  const swapBtn = document.getElementById('swap-btn-' + address);
+  if (swapBtn) {
+    swapBtn.classList.toggle('active', active === 'swap');
+  }
+}
+
+// ============================================================
+//  SWAP PANEL — carga lazy
+// ============================================================
+const _swapLoaded = new Set();
+
+function _loadSwap(address) {
+  if (_swapLoaded.has(address)) return;
+  _swapLoaded.add(address);
+  const wrap = document.getElementById('swap-iframe-wrap-' + address);
+  if (!wrap) return;
+  wrap.innerHTML = buildSwapIframe(address);
+}
+
+// ============================================================
+//  CHART PRELOAD / RECHECK
 // ============================================================
 function preloadAllCharts() {
   TOKENS.forEach((token, idx) => {
@@ -149,8 +238,7 @@ function preloadChart(address) {
   _chartLoaded.add(address);
   const wrap = document.getElementById('chart-iframe-wrap-' + address);
   if (!wrap) return;
-  const src = getChartSource(address);
-  _injectIframe(wrap, address, src);
+  _injectIframe(wrap, address, getChartSource(address));
 }
 
 function recheckChartUrl(address) {
@@ -158,12 +246,11 @@ function recheckChartUrl(address) {
   const token = getToken(address);
   const state = priceState[address];
   if (!wrap || !_chartLoaded.has(address)) return;
-  const src = getChartSource(address);
-  if (src !== 'dexscreener') return;
+  if (getChartSource(address) !== 'dexscreener') return;
   const pairAddr = state?.pairAddress || token?.pairAddress;
   if (!pairAddr) return;
   const currentSrc = wrap.querySelector('iframe')?.src || '';
-  if (!currentSrc.includes(pairAddr)) _injectIframe(wrap, address, src);
+  if (!currentSrc.includes(pairAddr)) _injectIframe(wrap, address, 'dexscreener');
 }
 
 // ============================================================
@@ -202,9 +289,9 @@ function buildTokenCard(token, state) {
     o.tokenAddress.toLowerCase() === token.address.toLowerCase() && !o.triggered
   );
 
-  const totalTxns    = (state.buys24h || 0) + (state.sells24h || 0);
-  const buyPct       = totalTxns > 0 ? Math.round((state.buys24h / totalTxns) * 100) : 50;
-  const sellPct      = 100 - buyPct;
+  const totalTxns     = (state.buys24h || 0) + (state.sells24h || 0);
+  const buyPct        = totalTxns > 0 ? Math.round((state.buys24h / totalTxns) * 100) : 50;
+  const sellPct       = 100 - buyPct;
   const pressureColor = buyPct > 60
     ? 'var(--accent-green)'
     : buyPct < 40 ? 'var(--accent-red)' : 'var(--accent-gold)';
@@ -242,7 +329,6 @@ function buildTokenCard(token, state) {
     ? `https://dexscreener.com/bsc/${pairAddr}`
     : `https://dexscreener.com/bsc/${token.address}`;
   const pooLink  = `https://poocoin.app/tokens/${token.address}`;
-
   const curSource = getChartSource(token.address);
 
   const removeBtn = token.custom
@@ -280,12 +366,20 @@ function buildTokenCard(token, state) {
           </div>
           ${removeBtn}
         </div>
-        <button class="chart-toggle-btn"
-                onclick="toggleChart('${token.address}')"
-                id="chart-btn-${token.address}"
-                title="Ver gráfica en vivo">
-          <span class="chart-btn-icon">▾</span> CHART
-        </button>
+        <div style="display:flex;gap:5px">
+          <button class="chart-toggle-btn"
+                  onclick="openPanel('${token.address}','chart')"
+                  id="chart-btn-${token.address}"
+                  title="Ver gráfica en vivo">
+            <span class="chart-btn-icon">▾</span> CHART
+          </button>
+          <button class="chart-toggle-btn swap-toggle-btn"
+                  onclick="openPanel('${token.address}','swap')"
+                  id="swap-btn-${token.address}"
+                  title="Swap USDT → ${state.symbol || token.symbol}">
+            ⇄ SWAP
+          </button>
+        </div>
       </div>
     </div>
 
@@ -347,7 +441,7 @@ function buildTokenCard(token, state) {
       </div>
     </div>
 
-    <!-- GRÁFICA DESPLEGABLE -->
+    <!-- PANEL: GRÁFICA -->
     <div class="chart-panel" id="chart-${token.address}" style="display:none">
       <div class="chart-panel-header">
         <span class="chart-panel-title">GRÁFICA — ${state.symbol || token.symbol} (${tag})</span>
@@ -373,28 +467,33 @@ function buildTokenCard(token, state) {
         </div>
       </div>
     </div>
+
+    <!-- PANEL: SWAP -->
+    <div class="chart-panel swap-panel" id="swap-${token.address}" style="display:none">
+      <div class="chart-panel-header">
+        <span class="chart-panel-title">SWAP — USDT → ${state.symbol || token.symbol} (${tag})</span>
+        <a class="chart-ext-link"
+           href="https://poocoin.app/swap?inputCurrency=${USDT_BSC}&outputCurrency=${token.address}"
+           target="_blank" rel="noopener" title="Abrir PooCoin Swap">↗</a>
+      </div>
+      <div class="swap-iframe-wrap" id="swap-iframe-wrap-${token.address}">
+        <div style="display:flex;align-items:center;justify-content:center;height:100%;
+                    font-family:var(--font-mono);font-size:11px;color:var(--text-muted);
+                    letter-spacing:2px;">
+          CARGANDO SWAP…
+        </div>
+      </div>
+    </div>
   `;
 
   return card;
 }
 
 // ============================================================
-//  TOGGLE GRÁFICA
+//  LEGACY toggleChart — redirige al nuevo sistema
 // ============================================================
 function toggleChart(address) {
-  const panel = document.getElementById('chart-' + address);
-  const btn   = document.getElementById('chart-btn-' + address);
-  if (!panel) return;
-  const isOpen = panel.style.display !== 'none';
-  if (isOpen) {
-    panel.style.display = 'none';
-    if (btn) { btn.classList.remove('active'); btn.querySelector('.chart-btn-icon').textContent = '▾'; }
-  } else {
-    panel.style.display = 'block';
-    if (btn) { btn.classList.add('active'); btn.querySelector('.chart-btn-icon').textContent = '▴'; }
-    preloadChart(address);
-    recheckChartUrl(address);
-  }
+  openPanel(address, 'chart');
 }
 
 // ============================================================
@@ -502,10 +601,8 @@ function openAddTokenModal() {
       presetsEl.appendChild(dot);
     });
   }
-
   const modal = document.getElementById('add-token-modal');
   if (modal) modal.classList.remove('hidden');
-
   setTimeout(() => {
     const addr = document.getElementById('at-address');
     if (addr) addr.focus();
@@ -515,7 +612,6 @@ function openAddTokenModal() {
 function closeAddTokenModal() {
   const modal = document.getElementById('add-token-modal');
   if (modal) modal.classList.add('hidden');
-
   ['at-address','at-symbol','at-name'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
