@@ -1,0 +1,113 @@
+/* ============================================================
+   TOKEN ALARM — ADDITIONS v5.0
+   Append this block at the end of css/style.css
+   ============================================================ */
+
+/* ══════════════════════════════════════════
+   ADD TOKEN MODAL
+   ══════════════════════════════════════════ */
+.add-token-modal-overlay {
+  position: fixed; inset: 0; z-index: 600;
+  background: rgba(7,9,13,0.85);
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeUp 0.2s ease;
+}
+
+.add-token-modal-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-top: 1px solid var(--accent-gold-dk);
+  border-radius: var(--radius-lg);
+  width: min(460px, 94vw);
+  box-shadow: var(--shadow-lift), 0 0 60px rgba(201,168,76,0.07);
+  overflow: hidden;
+  position: relative;
+}
+.add-token-modal-box::before {
+  content: '';
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 120px; height: 1px;
+  background: linear-gradient(to right, transparent, var(--accent-gold), transparent);
+}
+
+.add-token-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 26px;
+  border-bottom: 1px solid var(--border);
+}
+
+.add-token-modal-body {
+  padding: 24px 26px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+/* Color presets */
+.at-presets {
+  display: flex; gap: 7px; align-items: center; flex-wrap: wrap;
+}
+.at-preset-dot {
+  width: 22px; height: 22px; border-radius: 50%;
+  cursor: pointer;
+  border: 1.5px solid rgba(255,255,255,0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.at-preset-dot:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 8px rgba(255,255,255,0.3);
+}
+
+/* Botón + CONTRATO en el header de sección */
+.btn-add-contract {
+  background: transparent;
+  border: 1px solid rgba(201,168,76,0.35);
+  color: var(--accent-gold);
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: 2px; text-transform: uppercase;
+  padding: 7px 16px; border-radius: var(--radius-xs);
+  cursor: pointer; transition: all var(--transition);
+  display: flex; align-items: center; gap: 6px;
+}
+.btn-add-contract:hover {
+  background: rgba(201,168,76,0.07);
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 14px rgba(201,168,76,0.12);
+}
+
+/* Botón eliminar card custom */
+.remove-token-btn {
+  width: 26px !important; height: 26px !important;
+  font-size: 12px !important;
+}
+
+/* ══════════════════════════════════════════
+   CHART SOURCE TABS (DSC / POO)
+   ══════════════════════════════════════════ */
+.chart-source-tabs {
+  display: flex; align-items: center; gap: 5px;
+}
+
+.chart-src-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-mono); font-size: 9px;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  padding: 3px 9px; border-radius: var(--radius-xs);
+  cursor: pointer; transition: all var(--transition);
+}
+.chart-src-btn:hover {
+  border-color: var(--accent-gold-dk);
+  color: var(--accent-gold);
+  background: rgba(201,168,76,0.04);
+}
+.chart-src-btn.active {
+  border-color: var(--accent-gold-dk);
+  color: var(--accent-gold);
+  background: rgba(201,168,76,0.1);
+}
+
+/* PooCoin iframe necesita height mayor — ocupa más verticalmente */
+.chart-iframe-wrap.poocoin-mode {
+  height: 420px;
+}
