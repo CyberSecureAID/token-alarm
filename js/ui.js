@@ -1,11 +1,10 @@
 // ============================================================
-//  ui.js — DOM rendering & UI updates v5.3
-//  CAMBIOS v5.3:
-//    - Panel SWAP por card (PooCoin embed-swap)
-//      inputCurrency  = USDT BSC (fijo)
-//      outputCurrency = dirección del token (dinámico)
-//    - Tabs CHART / SWAP en cada card
-//    - PooCoin chart usa https://poocoin.app/tokens/<address>
+//  ui.js — DOM rendering & UI updates v5.4
+//  CAMBIOS v5.4:
+//    - Panel SWAP rebranding Token Alarm
+//    - Overlay inferior oculta el branding externo del embed
+//    - Título y links del panel SWAP sin referencias al proveedor
+//    - swap-outer-wrap + swap-brand-overlay
 // ============================================================
 
 const USDT_BSC = '0x55d398326f99059fF775485246999027B3197955';
@@ -113,7 +112,7 @@ function buildSwapIframe(address) {
     frameborder="0"
     allowfullscreen
     loading="lazy"
-    title="Swap ${contractTag(address)}"
+    title="Token Swap ${contractTag(address)}"
   ></iframe>`;
 }
 
@@ -156,21 +155,17 @@ const _activePanel = {};
 function openPanel(address, panel) {
   const current = _activePanel[address];
 
-  // Si el mismo panel ya está abierto → cerrar todo
   if (current === panel) {
     _closePanel(address);
     return;
   }
 
-  // Ocultar ambos paneles primero
   _setPanelVisible(address, 'chart', false);
   _setPanelVisible(address, 'swap',  false);
 
-  // Abrir el solicitado
   _activePanel[address] = panel;
   _setPanelVisible(address, panel, true);
 
-  // Cargar contenido si todavía no se hizo
   if (panel === 'chart') {
     preloadChart(address);
     recheckChartUrl(address);
@@ -178,7 +173,6 @@ function openPanel(address, panel) {
     _loadSwap(address);
   }
 
-  // Actualizar estado visual de botones
   _syncPanelBtns(address);
 }
 
@@ -328,7 +322,6 @@ function buildTokenCard(token, state) {
   const dexLink  = pairAddr
     ? `https://dexscreener.com/bsc/${pairAddr}`
     : `https://dexscreener.com/bsc/${token.address}`;
-  const pooLink  = `https://poocoin.app/tokens/${token.address}`;
   const curSource = getChartSource(token.address);
 
   const removeBtn = token.custom
@@ -453,9 +446,9 @@ function buildTokenCard(token, state) {
           <button id="chart-src-poocoin-${token.address}"
                   class="chart-src-btn${curSource === 'poocoin' ? ' active' : ''}"
                   onclick="switchChartSource('${token.address}','poocoin')"
-                  title="PooCoin">POO</button>
+                  title="Vista alternativa">ALT</button>
           <a class="chart-ext-link"
-             href="${curSource === 'poocoin' ? pooLink : dexLink}"
+             href="${curSource === 'poocoin' ? `https://poocoin.app/tokens/${token.address}` : dexLink}"
              id="chart-ext-${token.address}"
              target="_blank" rel="noopener" title="Abrir en nueva pestaña">↗</a>
         </div>
@@ -471,16 +464,22 @@ function buildTokenCard(token, state) {
     <!-- PANEL: SWAP -->
     <div class="chart-panel swap-panel" id="swap-${token.address}" style="display:none">
       <div class="chart-panel-header">
-        <span class="chart-panel-title">SWAP — USDT → ${state.symbol || token.symbol} (${tag})</span>
+        <span class="chart-panel-title">⇄ SWAP — USDT → ${state.symbol || token.symbol} (${tag})</span>
         <a class="chart-ext-link"
-           href="https://poocoin.app/swap?inputCurrency=${USDT_BSC}&outputCurrency=${token.address}"
-           target="_blank" rel="noopener" title="Abrir PooCoin Swap">↗</a>
+           href="https://pancakeswap.finance/swap?inputCurrency=${USDT_BSC}&outputCurrency=${token.address}"
+           target="_blank" rel="noopener" title="Abrir en PancakeSwap">↗</a>
       </div>
-      <div class="swap-iframe-wrap" id="swap-iframe-wrap-${token.address}">
-        <div style="display:flex;align-items:center;justify-content:center;height:100%;
-                    font-family:var(--font-mono);font-size:11px;color:var(--text-muted);
-                    letter-spacing:2px;">
-          CARGANDO SWAP…
+      <div class="swap-outer-wrap">
+        <div class="swap-iframe-wrap" id="swap-iframe-wrap-${token.address}">
+          <div style="display:flex;align-items:center;justify-content:center;height:100%;
+                      font-family:var(--font-mono);font-size:11px;color:var(--text-muted);
+                      letter-spacing:2px;">
+            CARGANDO…
+          </div>
+        </div>
+        <div class="swap-brand-overlay">
+          <span class="swap-brand-icon">◈</span>
+          <span class="swap-brand-text">TOKEN<span class="swap-brand-accent">ALARM</span></span>
         </div>
       </div>
     </div>
