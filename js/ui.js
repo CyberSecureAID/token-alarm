@@ -1,11 +1,9 @@
 // ============================================================
-//  ui.js — DOM rendering & UI updates v5.1
-//  FIXES:
-//    - openAddTokenModal / closeAddTokenModal usan el modal
-//      ya presente en el HTML (no lo crean dinámicamente)
-//    - submitAddToken conectado al modal del HTML
-//    - switchChartSource / toggleChart con tabs DSC/POO
-//    - Botón ＋ CONTRATO siempre visible
+//  ui.js — DOM rendering & UI updates v5.2
+//  FIXES v5.2:
+//    - PooCoin embed usa https://poocoin.app/tokens/<address>
+//      (carga la página completa, funciona sin restricción)
+//    - switchChartSource / toggleChart con tabs DSC / POO
 // ============================================================
 
 // ============================================================
@@ -81,7 +79,8 @@ function chartUrlFor(address, source) {
   const pairAddr = state?.pairAddress || token?.pairAddress;
 
   if (source === 'poocoin') {
-    return `https://poocoin.app/embed-charts-iframe?query=${address}`;
+    // Carga la página completa de PooCoin con el contrato del token
+    return `https://poocoin.app/tokens/${address}`;
   }
   return pairAddr
     ? `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`
@@ -105,7 +104,6 @@ function _injectIframe(wrap, address, source) {
   wrap.innerHTML = buildChartIframe(address, source);
   if (overlay) wrap.appendChild(overlay);
 
-  // Actualizar clase para PooCoin (altura mayor)
   if (source === 'poocoin') {
     wrap.classList.add('poocoin-mode');
   } else {
@@ -116,19 +114,16 @@ function _injectIframe(wrap, address, source) {
 function switchChartSource(address, source) {
   _chartSource[address] = source;
 
-  // Actualizar iframe si el panel ya está abierto
   const wrap = document.getElementById('chart-iframe-wrap-' + address);
   if (wrap && _chartLoaded.has(address)) {
     _injectIframe(wrap, address, source);
   }
 
-  // Toggle botones activos
   ['dexscreener', 'poocoin'].forEach(s => {
     const btn = document.getElementById(`chart-src-${s}-${address}`);
     if (btn) btn.classList.toggle('active', s === source);
   });
 
-  // Actualizar link externo
   const extLink = document.getElementById('chart-ext-' + address);
   if (extLink) {
     const token    = getToken(address);
@@ -490,10 +485,9 @@ function updateCardPrice(tokenAddress) {
 }
 
 // ============================================================
-//  ADD TOKEN MODAL — usa el elemento ya presente en el HTML
+//  ADD TOKEN MODAL
 // ============================================================
 function openAddTokenModal() {
-  // Poblar presets de color
   const presetsEl = document.getElementById('at-presets');
   if (presetsEl && presetsEl.children.length === 0) {
     ['#26a17b','#c9a84c','#3d7fff','#e05c6e','#2ecc87','#F0B90B','#9b59b6','#e67e22'].forEach(c => {
@@ -522,7 +516,6 @@ function closeAddTokenModal() {
   const modal = document.getElementById('add-token-modal');
   if (modal) modal.classList.add('hidden');
 
-  // Limpiar campos
   ['at-address','at-symbol','at-name'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
@@ -533,7 +526,6 @@ function closeAddTokenModal() {
   if (err) err.textContent = '';
 }
 
-// Cerrar modal clickando el overlay
 document.addEventListener('DOMContentLoaded', () => {
   const modal = document.getElementById('add-token-modal');
   if (modal) {
@@ -563,7 +555,6 @@ function submitAddToken() {
 
   closeAddTokenModal();
 
-  // Agregar card al grid
   const grid = document.getElementById('tokens-grid');
   if (grid) {
     const card = buildTokenCard(result.token, priceState[result.token.address]);
