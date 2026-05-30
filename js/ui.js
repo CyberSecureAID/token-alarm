@@ -81,7 +81,7 @@ function chartUrlFor(address, source) {
   const pairAddr = state?.pairAddress || token?.pairAddress;
 
   if (source === 'poocoin') {
-    return `https://poocoin.app/tokens/${address}`;
+    return `https://poocoin.app/embed-charts-iframe?query=${address}`;
   }
   return pairAddr
     ? `https://dexscreener.com/bsc/${pairAddr}?embed=1&theme=dark&info=0&trades=0`
