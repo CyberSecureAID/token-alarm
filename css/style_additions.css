@@ -1,5 +1,5 @@
 /* ============================================================
-   TOKEN ALARM — ADDITIONS v5.4
+   TOKEN ALARM — ADDITIONS v5.5
    ============================================================ */
 
 /* ══════════════════════════════════════════
@@ -87,7 +87,7 @@
 }
 
 /* ══════════════════════════════════════════
-   CHART SOURCE TABS (DSC / POO)
+   CHART SOURCE TABS (DSC / ALT)
    ══════════════════════════════════════════ */
 .chart-source-tabs {
   display: flex; align-items: center; gap: 5px;
@@ -119,8 +119,7 @@
 }
 
 /* ══════════════════════════════════════════
-   SWAP PANEL v5.4
-   Estilo propio Token Alarm — sin referencias externas visibles
+   SWAP PANEL v5.5
    ══════════════════════════════════════════ */
 
 /* Botón SWAP en la card */
@@ -154,48 +153,50 @@
   letter-spacing: 2.5px;
 }
 
-/* ── Wrap externo: posicionamiento para el overlay ── */
-.swap-outer-wrap {
-  position: relative;
-  width: 100%;
-  overflow: hidden;
-  background: var(--bg-base);
-}
-
-/* ── Iframe de swap ── */
+/*
+ * ── SWAP IFRAME WRAP ──────────────────────────────────────
+ * overflow:hidden + altura fija = el iframe puede crecer
+ * más allá del borde inferior y el footer queda oculto.
+ * El overlay vive DENTRO de este div (position:absolute).
+ * ──────────────────────────────────────────────────────── */
 .swap-iframe-wrap {
+  position: relative;          /* contexto para el overlay */
   width: 100%;
-  height: 630px;
+  height: 590px;               /* altura visible del panel */
+  overflow: hidden;            /* corta todo lo que pase de aquí */
   background: var(--bg-base);
-  overflow: hidden;
-  position: relative;
 }
 
+/* El iframe es MÁS ALTO que el wrap → el footer queda cortado */
 .swap-iframe {
   width: 100%;
-  height: calc(100% + 56px);   /* crece hacia abajo para ocultar footer del embed */
-  margin-top: 0;
+  height: calc(100% + 80px);  /* 80px extra → oculta footer poocoin */
   border: none;
   display: block;
+  /* NO margin-top: 0 — queremos que el top quede alineado */
 }
 
-/* ── Overlay inferior: tapa el branding externo del embed ── */
+/*
+ * Overlay: position:absolute dentro de swap-iframe-wrap.
+ * Tapa el área inferior con un gradiente sólido.
+ * pointer-events:none para no bloquear el scroll del iframe.
+ */
 .swap-brand-overlay {
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  height: 56px;
+  height: 80px;               /* mismo valor que el extra del iframe */
   background: linear-gradient(
     to bottom,
     transparent 0%,
-    var(--bg-base) 38%,
+    var(--bg-base) 35%,
     var(--bg-base) 100%
   );
-  z-index: 10;
+  z-index: 20;
   pointer-events: none;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-bottom: 10px;
+  padding-bottom: 12px;
   gap: 6px;
   user-select: none;
 }
@@ -203,7 +204,7 @@
 .swap-brand-icon {
   color: var(--accent-green);
   font-size: 11px;
-  opacity: 0.6;
+  opacity: 0.55;
   line-height: 1;
 }
 
@@ -214,7 +215,7 @@
   letter-spacing: 4px;
   color: var(--text-muted);
   text-transform: uppercase;
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
 .swap-brand-text .swap-brand-accent {
@@ -222,21 +223,9 @@
   opacity: 1;
 }
 
-/* ── Línea decorativa superior del swap wrap ── */
-.swap-outer-wrap::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 50%; transform: translateX(-50%);
-  width: 80px; height: 1px;
-  background: linear-gradient(to right, transparent, var(--accent-green), transparent);
-  opacity: 0.25;
-  z-index: 5;
-  pointer-events: none;
-}
-
 /* Responsive */
 @media (max-width: 640px) {
   .swap-iframe-wrap {
-    height: 560px;
+    height: 520px;
   }
 }
