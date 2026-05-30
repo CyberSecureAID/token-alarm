@@ -1,5 +1,5 @@
 /* ============================================================
-   TOKEN ALARM — ADDITIONS v5.1
+   TOKEN ALARM — ADDITIONS v5.3
    ============================================================ */
 
 /* ══════════════════════════════════════════
@@ -61,7 +61,7 @@
 }
 
 /* ══════════════════════════════════════════
-   BOTÓN + CONTRATO — visible y prominente
+   BOTÓN + CONTRATO
    ══════════════════════════════════════════ */
 .btn-add-contract {
   background: transparent;
@@ -116,4 +116,58 @@
 /* PooCoin iframe — altura mayor para el embed */
 .chart-iframe-wrap.poocoin-mode {
   height: 480px;
+}
+
+/* ══════════════════════════════════════════
+   SWAP PANEL v5.3
+   ══════════════════════════════════════════ */
+
+/* Botón SWAP */
+.swap-toggle-btn {
+  border-color: rgba(61,127,255,0.35) !important;
+  color: var(--accent-blue) !important;
+}
+.swap-toggle-btn:hover {
+  border-color: var(--accent-blue) !important;
+  background: rgba(61,127,255,0.06) !important;
+}
+.swap-toggle-btn.active {
+  border-color: var(--accent-blue) !important;
+  background: rgba(61,127,255,0.10) !important;
+  color: var(--accent-blue) !important;
+}
+
+/* Header del panel Swap */
+.swap-panel .chart-panel-header {
+  border-bottom-color: rgba(61,127,255,0.15);
+}
+.swap-panel .chart-panel-title {
+  color: var(--accent-blue);
+  opacity: 0.8;
+}
+
+/* Wrap del iframe de swap */
+.swap-iframe-wrap {
+  width: 100%;
+  height: 630px;
+  background: #0a0c10;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* El iframe ocupa todo el wrap */
+.swap-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .swap-iframe-wrap {
+    height: 560px;
+  }
 }
