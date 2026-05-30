@@ -113,7 +113,7 @@
   background: rgba(201,168,76,0.10);
 }
 
-/* PooCoin iframe — altura mayor */
+/* PooCoin iframe — altura mayor para el embed */
 .chart-iframe-wrap.poocoin-mode {
-  height: 420px;
+  height: 480px;
 }
