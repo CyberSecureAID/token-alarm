@@ -1,5 +1,9 @@
 /* ============================================================
-   TOKEN ALARM — ADDITIONS v5.8
+   TOKEN ALARM — ADDITIONS v5.9
+   CAMBIOS v5.9 (supply/holders):
+   - .card-stats-extra: fila adicional debajo de .card-stats
+     para SUPPLY TOTAL y HOLDERS, sin tocar el grid de 6 columnas
+   - .stat-value-muted: estilo atenuado para HOLDERS (placeholder)
    CAMBIOS v5.8 (selector de rutas swap):
    - .swap-route-selector: barra de selección de proveedores
    - .swap-route-btn: botones ROUTE A / B / C con estado activo
@@ -91,6 +95,47 @@
 .remove-token-btn {
   width: 26px !important; height: 26px !important;
   font-size: 12px !important;
+}
+
+/* ══════════════════════════════════════════
+   STATS EXTRA v5.9 — SUPPLY TOTAL / HOLDERS
+   Fila independiente debajo de .card-stats,
+   misma identidad visual (mismas clases .stat-item
+   reutilizadas dentro de un grid de 2 columnas).
+   ══════════════════════════════════════════ */
+.card-stats-extra {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.card-stats-extra .stat-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+
+.card-stats-extra .stat-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+/* HOLDERS: atenuado porque hoy es un placeholder ("—") —
+   requiere API key de BscScan, fuera del alcance "sin backend". */
+.stat-value-muted {
+  color: var(--text-dim) !important;
+  cursor: help;
+}
+
+@media (max-width: 860px) {
+  .card-stats-extra { grid-template-columns: 1fr 1fr; }
 }
 
 /* ══════════════════════════════════════════
