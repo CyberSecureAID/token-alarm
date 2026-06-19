@@ -1,5 +1,9 @@
 // ============================================================
-//  ui.js — DOM rendering & UI updates v6.0
+//  ui.js — DOM rendering & UI updates v6.1
+//  CAMBIOS v6.1:
+//    - Se agrega numberToWordsEs() (faltaba por completo y
+//      provocaba un error JS al abrir el popup de "Liquidez",
+//      impidiendo que cualquier popup de "+info" se mostrara).
 //  CAMBIOS v6.0:
 //    - Nuevo bloque .card-onchain: datos on-chain vía Etherscan V2
 //      (BscScan) — verificación, creador, fecha de creación,
@@ -1123,7 +1127,7 @@ const INFO_TEXTS = {
     title: 'Liquidez',
     body: (state) => `
       <p>La liquidez es la cantidad de dinero (en USD) depositada en el pool de intercambio de este token. Ese dinero es lo que permite comprar y vender el token sin que el precio se mueva bruscamente.</p>
-      ${state && state.liquidity ? `<p class="info-amount-words">${numberToWordsEs(state.liquidity)}.</p>` : ''}
+      ${state && state.liquidity ? `<p class="info-amount-words">${numberToWordsEs(state.liquidity)}</p>` : ''}
       <p>Cuanta más liquidez tenga un token, más difícil es manipular su precio y más seguro resulta operar con montos grandes. Una liquidez muy baja es una señal de alerta: el precio puede dispararse o desplomarse con compras o ventas pequeñas.</p>
     `,
   },
@@ -1180,6 +1184,18 @@ const INFO_TEXTS = {
     `,
   },
 };
+
+// Convierte un monto en USD a una frase aproximada en español
+// (usado en el popup de "Liquidez"). Esta función faltaba por
+// completo en versiones anteriores, lo cual rompía el popup.
+function numberToWordsEs(amount) {
+  if (amount === null || amount === undefined || isNaN(amount) || amount <= 0) return '';
+  const abs = Math.abs(amount);
+  if (abs >= 1e9)  return `Equivale a aproximadamente ${(abs / 1e9).toFixed(2)} mil millones de dólares`;
+  if (abs >= 1e6)  return `Equivale a aproximadamente ${(abs / 1e6).toFixed(2)} millones de dólares`;
+  if (abs >= 1e3)  return `Equivale a aproximadamente ${(abs / 1e3).toFixed(1)} mil dólares`;
+  return `Equivale a aproximadamente ${abs.toFixed(2)} dólares`;
+}
 
 function showInfoPopup(key, address) {
   const info = INFO_TEXTS[key];
@@ -1238,4 +1254,3 @@ document.addEventListener('click', e => {
   const address = btn.dataset.infoAddress;
   showInfoPopup(key, address);
 });
-
