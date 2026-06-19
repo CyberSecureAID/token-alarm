@@ -1,13 +1,12 @@
 // ============================================================
-//  ui.js — DOM rendering & UI updates v5.8
-//  CAMBIOS v5.8:
-//    - Panel SWAP: selector de 3 proveedores con nombres propios
-//      ROUTE A (Poocoin embed), ROUTE B (PancakeSwap V2),
-//      ROUTE C (Uniswap widget)
-//    - switchSwapProvider(): carga lazy por proveedor
-//    - _swapProvider: estado de proveedor activo por card
-//    - Ninguna referencia a nombre de proveedor externo visible
-//    - Compatible 100% con lógica v5.6/v5.7 existente
+//  ui.js — DOM rendering & UI updates v5.9
+//  CAMBIOS v5.9:
+//    - Nueva fila .card-stats-extra: SUPPLY TOTAL + HOLDERS
+//      (no toca el grid de 6 stats existente)
+//    - updateCardPrice() refresca también stat-supply-<addr>
+//    - Holders queda con placeholder "—" (ver prices.js / tokens.js
+//      para el motivo: requiere API key de BscScan)
+//    - Resto idéntico a v5.8
 // ============================================================
 
 const USDT_BSC     = '0x55d398326f99059fF775485246999027B3197955';
@@ -535,6 +534,21 @@ function buildTokenCard(token, state) {
       </div>
     </div>
 
+    <!-- STATS EXTRA v5.9 — supply total + holders. Fila separada,
+         no altera el grid de 6 columnas existente arriba. -->
+    <div class="card-stats-extra">
+      <div class="stat-item">
+        <div class="stat-label">SUPPLY TOTAL</div>
+        <div class="stat-value" id="stat-supply-${token.address}">${formatSupply(state.totalSupply)}</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">HOLDERS</div>
+        <div class="stat-value stat-value-muted"
+             id="stat-holders-${token.address}"
+             title="No disponible sin API key de BscScan">—</div>
+      </div>
+    </div>
+
     <!-- PRESIÓN COMPRA/VENTA -->
     ${totalTxns > 0 ? `
     <div class="pressure-section">
@@ -679,7 +693,7 @@ function updateCardPrice(tokenAddress) {
       buildChangePill(state.priceChange7d, '7D');
   }
 
-  const sv = card.querySelectorAll('.stat-value');
+  const sv = card.querySelectorAll('.card-stats .stat-value');
   const activeAlerts = getOrders().filter(o =>
     o.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() && !o.triggered
   ).length;
@@ -697,6 +711,10 @@ function updateCardPrice(tokenAddress) {
       if (i === 5) el.style.color = 'var(--accent-gold)';
     }
   });
+
+  // Supply total — fila extra, independiente del grid de 6 stats
+  const supplyEl = document.getElementById('stat-supply-' + tokenAddress);
+  if (supplyEl) supplyEl.textContent = formatSupply(state.totalSupply);
 
   const buyCount  = state.buys24h  || 0;
   const sellCount = state.sells24h || 0;
